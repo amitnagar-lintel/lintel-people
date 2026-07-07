@@ -294,6 +294,7 @@ const NAV = [
 function buildNav(){
   let items = NAV.slice();
   items.splice(1,0,["profile","\u25D4 My profile"]);
+  items.splice(3,0,["salary","\u20B9 Salary"]);
   items.push(["holidays","\u2600 Holidays"]);
   if(ME.access_level==="admin") items.push(["admin","\u2699 Admin"]);
   $("#nav").innerHTML = items.map(([id,l])=>`<button class="nav-btn" data-view="${id}">${l}</button>`).join("");
@@ -305,7 +306,7 @@ function setActive(v){ $("#nav").querySelectorAll(".nav-btn").forEach(x=>x.class
 function render(view){
   setActive(view);
   const el=$("#view"); el.innerHTML=`<div class="load">Loading…</div>`;
-  ({overview:renderOverview, documents:renderDocuments, leave:renderLeave, claims:renderClaims, kyc:renderKyc, timesheet:renderTimesheet, holidays:renderHolidays, admin:renderAdmin, profile:renderProfile}[view]||renderOverview)(el);
+  ({overview:renderOverview, documents:renderDocuments, leave:renderLeave, claims:renderClaims, kyc:renderKyc, timesheet:renderTimesheet, holidays:renderHolidays, admin:renderAdmin, profile:renderProfile, salary:renderSalary}[view]||renderOverview)(el);
 }
 
 /* ===================== OVERVIEW ===================== */
@@ -409,6 +410,17 @@ async function renderLeave(el){
         :`<div class="empty">No balance assigned yet — contact HR.</div>`}
     </div>
     <div class="card">
+      <h3>Leave policy</h3><div class="h3sub">As per the Karnataka Shops &amp; Commercial Establishments Act and central acts</div>
+      <table class="t"><tbody>
+        <tr><td>Casual leave</td><td style="text-align:right">12 days / year</td></tr>
+        <tr><td>Sick leave</td><td style="text-align:right">12 days / year</td></tr>
+        <tr><td>Earned / privilege leave</td><td style="text-align:right">18 days / year (carry-forward up to 45)</td></tr>
+        <tr><td>Maternity leave</td><td style="text-align:right">26 weeks</td></tr>
+        <tr><td>Paternity / bereavement</td><td style="text-align:right">Company policy</td></tr>
+        <tr><td>Work from home</td><td style="text-align:right">1 day / week</td></tr>
+      </tbody></table>
+    </div>
+    <div class="card">
       <h3>Request history</h3><div class="h3sub"></div>
       ${tableOrEmpty(reqs.data,["Type","From","To","Days","Reason","Status"], l=>[
         esc(l.leave_type), dMed(l.from_date), dMed(l.to_date), l.days, esc(l.reason||"—"), pill(l.status)],"No requests yet.")}
@@ -417,7 +429,7 @@ async function renderLeave(el){
 function leaveModal(){
   openModal("Apply for leave", `
     <label class="fld"><span>Leave type</span>
-      <select id="lv-type">${["casual","sick","earned"].map(t=>`<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join("")}</select></label>
+      <select id="lv-type">${LEAVE_TYPES.map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select></label>
     <div class="grid2">
       <label class="fld"><span>From</span><input id="lv-from" type="date"/></label>
       <label class="fld"><span>To</span><input id="lv-to" type="date"/></label>
@@ -433,6 +445,11 @@ async function submitLeave(){
   const calc=workingLeaveDays(from,to);
   const days=calc.days;
   if(days<1) return toast("That range has no working days to deduct.");
+  if(type==="wfh"){
+    const wk=weekBounds(from);
+    const {data:ex}=await sb.from("hr_leave_requests").select("id").eq("employee_id",ME.id).eq("leave_type","wfh").in("status",["pending","approved"]).gte("from_date",wk[0]).lte("from_date",wk[1]);
+    if(ex&&ex.length) return toast("Only one work-from-home is allowed per week.");
+  }
   const { error } = await sb.from("hr_leave_requests").insert({
     employee_id:ME.id, leave_type:type, from_date:from, to_date:to, days, reason, status:"pending" });
   if(error) return toast("Couldn't submit: "+error.message);
@@ -664,12 +681,39 @@ async function renderAdmin(el, tab){
           <button class="btn sm" onclick="approveProfile('${p.employee_id}')">Approve &amp; lock</button>
           <button class="btn ghost sm" onclick="returnProfile('${p.employee_id}')">Return</button></div></div>`;
     }))).join("") : `<div class="empty">No profiles awaiting approval.</div>`;
+  } else if(tab==="salary"){
+    const {data:es}=await sb.from("employees").select("id,full_name").eq("status","active").order("full_name");
+    body=`<label class="fld"><span>Employee</span><select id="sal-emp" onchange="loadSalStruct()">${(es||[]).map(e=>`<option value="${e.id}">${esc(e.full_name)}</option>`).join("")}</select></label><div id="sal-form"></div>`;
+    setTimeout(loadSalStruct,60);
+  } else if(tab==="offers"){
+    body=`<div class="grid2">
+      <label class="fld"><span>Candidate name</span><input id="of-name"/></label>
+      <label class="fld"><span>Candidate email</span><input id="of-email" type="email"/></label>
+      <label class="fld"><span>Phone</span><input id="of-phone"/></label>
+      <label class="fld"><span>Designation</span><input id="of-desig"/></label>
+      <label class="fld"><span>Department</span><input id="of-dept"/></label>
+      <label class="fld"><span>Annual CTC (₹)</span><input id="of-ctc" type="number"/></label>
+      <label class="fld"><span>Date of joining</span><input id="of-doj" type="date"/></label>
+      <label class="fld"><span>Work location</span><input id="of-loc" value="Bengaluru"/></label>
+      <label class="fld"><span>Probation (months)</span><input id="of-prob" type="number" value="6"/></label>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn ghost" onclick="previewOffer()">Preview / download</button>
+      <button class="btn" onclick="saveOffer()">Save draft</button>
+      <button class="btn brass" onclick="emailOffer()">Send email</button></div>`;
+  } else if(tab==="employees"){
+    const {data:all}=await sb.from("employees").select("*").order("full_name");
+    body=`<table class="t"><thead><tr><th>Name</th><th>Designation</th><th>DOJ</th><th>Access</th><th></th></tr></thead><tbody>
+      ${(all||[]).map(e=>`<tr><td style="font-weight:600">${esc(e.full_name)}</td><td>${esc(e.designation||"—")}</td>
+        <td>${e.date_of_joining?dMed(e.date_of_joining):"—"}</td><td>${esc(e.access_level)}</td>
+        <td style="text-align:right"><button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
+      </tbody></table>`;
   }
   el.innerHTML=`
     <h2 class="page display">Admin</h2>
     <div class="page-sub">Approvals and verification — visible to admins only.</div>
     <div class="card">
-      <div style="display:flex;gap:8px;margin-bottom:16px">${tb("leave","Leave")}${tb("profiles","Profiles")}${tb("kyc","KYC")}${tb("claims","Claims")}</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">${tb("leave","Leave")}${tb("profiles","Profiles")}${tb("kyc","KYC")}${tb("claims","Claims")}${tb("salary","Salary")}${tb("offers","Offer letters")}${tb("employees","Employees")}</div>
       ${body}
     </div>`;
 }
@@ -692,6 +736,20 @@ async function renderProfile(el){
   const status=p?.profile_status||"draft";
   const locked=status==="submitted"||status==="approved";
   let avatarUrl=""; if(p?.avatar_path){ try{ avatarUrl=await signedUrl(p.avatar_path);}catch(e){} }
+  let mgr=""; if(ME.manager_id){ try{ const r=await sb.from("employees").select("full_name").eq("id",ME.manager_id).maybeSingle(); mgr=r.data?.full_name||""; }catch(e){} }
+  const doj=ME.date_of_joining, conf=doj?addMonths(doj,ME.probation_months||6):null;
+  const confirmed = conf ? (new Date()>=new Date(conf)) : false;
+  const empCard=`<div class="card"><h3>Employment</h3><div class="h3sub">Managed by HR</div>
+    <div class="grid2">
+      <div class="doc-row"><span class="doc-meta">Employee code</span><span>${esc(ME.emp_code||"—")}</span></div>
+      <div class="doc-row"><span class="doc-meta">Designation</span><span>${esc(ME.designation||"—")}</span></div>
+      <div class="doc-row"><span class="doc-meta">Department</span><span>${esc(ME.department||"—")}</span></div>
+      <div class="doc-row"><span class="doc-meta">Employment type</span><span>${esc((ME.employment_type||"—").replace(/_/g," "))}</span></div>
+      <div class="doc-row"><span class="doc-meta">Date of joining</span><span>${doj?dMed(doj):"—"}</span></div>
+      <div class="doc-row"><span class="doc-meta">Reporting manager</span><span>${esc(mgr||"—")}</span></div>
+      <div class="doc-row"><span class="doc-meta">Work location</span><span>${esc(ME.work_location||"—")}</span></div>
+      <div class="doc-row"><span class="doc-meta">Status</span><span>${confirmed?'<span class="pill good">Confirmed</span>':'<span class="pill warn">On probation'+(conf?" till "+dMed(conf):"")+'</span>'}</span></div>
+    </div></div>`;
   const banner = status==="submitted"
     ? `<div class="cfg-warn" style="display:block">⏳ Submitted — awaiting approval. Your details are locked until an admin reviews them.</div>`
     : status==="approved"
@@ -701,6 +759,7 @@ async function renderProfile(el){
     <h2 class="page display">My profile</h2>
     <div class="page-sub">Fill in your details and submit for approval. Once submitted they lock until reviewed.</div>
     ${banner}
+    ${empCard}
     <div class="card">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
         <img id="pf-av" src="${avatarUrl}" style="width:74px;height:74px;border-radius:50%;object-fit:cover;background:var(--paper-2);border:1px solid var(--line)"/>
@@ -739,6 +798,185 @@ async function saveProfile(submit){
 }
 async function approveProfile(emp){ await sb.from("hr_profiles").update({profile_status:"approved",approved_by:ME.id,approved_at:new Date().toISOString()}).eq("employee_id",emp); toast("Profile approved & locked."); renderAdmin(document.querySelector("#view"),"profiles"); }
 async function returnProfile(emp){ await sb.from("hr_profiles").update({profile_status:"draft"}).eq("employee_id",emp); toast("Returned to employee for edits."); renderAdmin(document.querySelector("#view"),"profiles"); }
+
+
+/* ===================== helpers (dates) ===================== */
+function weekBounds(iso){ const d=new Date(iso); const dow=(d.getDay()+6)%7; const mon=new Date(d); mon.setDate(d.getDate()-dow); const sun=new Date(mon); sun.setDate(mon.getDate()+6); return [mon.toISOString().slice(0,10), sun.toISOString().slice(0,10)]; }
+function addMonths(iso,n){ const d=new Date(iso); d.setMonth(d.getMonth()+Number(n||0)); return d.toISOString().slice(0,10); }
+const LEAVE_TYPES=[["casual","Casual leave"],["sick","Sick leave"],["earned","Earned / privilege"],["comp_off","Comp-off"],["wfh","Work from home"],["maternity","Maternity"],["paternity","Paternity"],["bereavement","Bereavement"],["lop","Loss of pay"]];
+
+/* ===================== SALARY (employee) ===================== */
+async function renderSalary(el){
+  const [st,slips]=await Promise.all([
+    sb.from("hr_salary_structures").select("*").eq("employee_id",ME.id).maybeSingle(),
+    sb.from("hr_salary_slips").select("*").eq("employee_id",ME.id).eq("status","published").order("slip_month",{ascending:false})
+  ]);
+  const s=st.data, S=slips.data||[];
+  const earn=s?[["Basic",s.basic],["HRA",s.hra],["Special allowance",s.special_allowance],...Object.entries(s.other_earnings||{})]:[];
+  const ded=s?[["PF (employee)",s.pf_employee],["Professional tax",s.professional_tax],...Object.entries(s.other_deductions||{})]:[];
+  const gross=earn.reduce((a,[,v])=>a+Number(v||0),0), td=ded.reduce((a,[,v])=>a+Number(v||0),0), net=gross-td;
+  const tbl=a=>a.map(([k,v])=>`<tr><td>${esc(k)}</td><td style="text-align:right">${inr(v)}</td></tr>`).join("");
+  el.innerHTML=`
+    <h2 class="page display">Salary</h2>
+    <div class="page-sub">Your current monthly structure and downloadable slips.</div>
+    ${s?`<div class="card"><h3>Monthly structure</h3><div class="h3sub">Annual CTC ${inr(s.ctc_annual)}</div>
+      <div class="grid2">
+        <div><div class="h3sub">Earnings</div><table class="t"><tbody>${tbl(earn)}<tr><td style="font-weight:700">Gross</td><td style="text-align:right;font-weight:700">${inr(gross)}</td></tr></tbody></table></div>
+        <div><div class="h3sub">Deductions</div><table class="t"><tbody>${tbl(ded)}<tr><td style="font-weight:700">Total</td><td style="text-align:right;font-weight:700">${inr(td)}</td></tr></tbody></table></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-weight:700"><span>Net pay (monthly)</span><span>${inr(net)}</span></div></div>`
+      :`<div class="card"><div class="empty">Your salary structure hasn't been set yet — HR will add it.</div></div>`}
+    <div class="card"><h3>Salary slips</h3><div class="h3sub"></div>
+      ${S.length?`<table class="t"><thead><tr><th>Month</th><th>Gross</th><th>Net pay</th><th></th></tr></thead><tbody>
+        ${S.map(sl=>`<tr><td style="font-weight:600">${monthLbl(sl.slip_month)}</td><td>${inr(sl.gross)}</td><td style="font-weight:600">${inr(sl.net_pay)}</td>
+          <td style="text-align:right"><button class="btn ghost sm" onclick='printSlip(${JSON.stringify(sl).replace(/'/g,"&#39;")},${JSON.stringify(ME.full_name).replace(/'/g,"&#39;")},${JSON.stringify(ME.emp_code||"").replace(/'/g,"&#39;")},${JSON.stringify(ME.designation||"").replace(/'/g,"&#39;")})'>Download</button></td></tr>`).join("")}
+      </tbody></table>`:`<div class="empty">No salary slips yet.</div>`}
+    </div>`;
+}
+const LETTER_CSS=`body{font-family:Georgia,'Times New Roman',serif;color:#0D0D27;padding:48px;max-width:760px;margin:auto;line-height:1.6}
+  .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #DFB05E;padding-bottom:14px;margin-bottom:24px}
+  .hd img{width:56px;height:56px;border-radius:50%} .hd h1{font-size:21px;margin:0} .m{color:#666;font-size:12px}
+  h2{font-size:16px;text-transform:uppercase;letter-spacing:1px;margin:22px 0 8px} table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:6px 4px;border-bottom:1px solid #eee} ul{padding-left:18px} li{margin:4px 0}
+  .cols{display:flex;gap:34px}.cols>div{flex:1} .net{margin-top:18px;padding:12px 16px;background:#F4EFE6;display:flex;justify-content:space-between;font-weight:700;font-size:16px}
+  @media print{button{display:none}}`;
+function printSlip(sl,name,code,desig){
+  const e=Object.entries(sl.earnings||{}), d=Object.entries(sl.deductions||{});
+  const rows=a=>a.map(([k,v])=>`<tr><td>${k}</td><td style="text-align:right">${inr(v)}</td></tr>`).join("");
+  const w=window.open("","_blank");
+  w.document.write(`<html><head><title>Salary slip ${monthLbl(sl.slip_month)}</title><style>${LETTER_CSS}</style></head><body>
+    <div class="hd"><img src="${LSA_SEAL}"/><div><h1>Lintel Space Atelier</h1><div class="m">Salary slip — ${monthLbl(sl.slip_month)}</div></div></div>
+    <div class="m">Employee: <b>${esc(name)}</b>${code?" · "+esc(code):""}${desig?" · "+esc(desig):""}</div>
+    <div class="cols"><div><h2>Earnings</h2><table><tbody>${rows(e)}<tr style="font-weight:700"><td>Gross</td><td style="text-align:right">${inr(sl.gross)}</td></tr></tbody></table></div>
+      <div><h2>Deductions</h2><table><tbody>${rows(d)}</tbody></table></div></div>
+    <div class="net"><span>Net Pay</span><span>${inr(sl.net_pay)}</span></div>
+    <p class="m" style="margin-top:26px">This is a computer-generated salary slip and does not require a signature.</p>
+    <button onclick="window.print()" style="margin-top:20px;padding:10px 18px">Print / Save as PDF</button></body></html>`);
+  w.document.close();
+}
+
+/* ===================== ADMIN — salary structure & slips ===================== */
+async function loadSalStruct(){
+  const emp=document.querySelector("#sal-emp").value;
+  const {data:s}=await sb.from("hr_salary_structures").select("*").eq("employee_id",emp).maybeSingle();
+  const g=(k,d="")=>s?.[k]??d;
+  document.querySelector("#sal-form").innerHTML=`
+    <div class="grid2">
+      <label class="fld"><span>Annual CTC (₹)</span><input id="sal-ctc" type="number" value="${g('ctc_annual')}"/></label>
+      <label class="fld" style="align-self:end"><button class="btn ghost sm" onclick="autoBreakup()">Auto-calc breakup</button></label>
+      <label class="fld"><span>Basic (monthly)</span><input id="sal-basic" type="number" value="${g('basic')}"/></label>
+      <label class="fld"><span>HRA</span><input id="sal-hra" type="number" value="${g('hra')}"/></label>
+      <label class="fld"><span>Special allowance</span><input id="sal-special" type="number" value="${g('special_allowance')}"/></label>
+      <label class="fld"><span>PF (employee)</span><input id="sal-pf" type="number" value="${g('pf_employee')}"/></label>
+      <label class="fld"><span>Professional tax</span><input id="sal-pt" type="number" value="${g('professional_tax',200)}"/></label>
+    </div>
+    <div style="margin-bottom:16px"><button class="btn brass" onclick="saveSalStruct()">Save structure</button></div>
+    <div class="card" style="background:var(--paper)"><h3>Generate salary slip</h3><div class="h3sub">Creates a published slip the employee can download</div>
+      <div class="grid2"><label class="fld"><span>Month</span><input id="sal-month" type="month"/></label>
+      <label class="fld" style="align-self:end"><button class="btn" onclick="generateSlip()">Generate &amp; publish</button></label></div></div>`;
+}
+function autoBreakup(){
+  const ctc=Number(document.querySelector("#sal-ctc").value||0), m=ctc/12;
+  const basic=Math.round(m*0.40), hra=Math.round(basic*0.5), pfEr=Math.round(basic*0.12);
+  const special=Math.round(m-basic-hra-pfEr), pfEe=Math.round(basic*0.12);
+  document.querySelector("#sal-basic").value=basic; document.querySelector("#sal-hra").value=hra;
+  document.querySelector("#sal-special").value=Math.max(0,special); document.querySelector("#sal-pf").value=pfEe; document.querySelector("#sal-pt").value=200;
+}
+async function saveSalStruct(){
+  const emp=document.querySelector("#sal-emp").value, n=id=>Number(document.querySelector("#sal-"+id).value||0);
+  const {error}=await sb.from("hr_salary_structures").upsert({employee_id:emp,ctc_annual:n("ctc"),basic:n("basic"),hra:n("hra"),special_allowance:n("special"),pf_employee:n("pf"),professional_tax:n("pt"),updated_at:new Date().toISOString()},{onConflict:"employee_id"});
+  if(error) return toast("Save failed: "+error.message); toast("Salary structure saved.");
+}
+async function generateSlip(){
+  const emp=document.querySelector("#sal-emp").value, mo=document.querySelector("#sal-month").value;
+  if(!mo) return toast("Pick a month.");
+  const {data:s}=await sb.from("hr_salary_structures").select("*").eq("employee_id",emp).maybeSingle();
+  if(!s) return toast("Save the structure first.");
+  const earnings={Basic:s.basic,HRA:s.hra,"Special Allowance":s.special_allowance};
+  const deductions={"PF (Employee)":s.pf_employee,"Professional Tax":s.professional_tax};
+  const gross=Number(s.basic)+Number(s.hra)+Number(s.special_allowance), net=gross-Number(s.pf_employee)-Number(s.professional_tax);
+  const {error}=await sb.from("hr_salary_slips").upsert({employee_id:emp,slip_month:mo+"-01",earnings,deductions,gross,net_pay:net,status:"published",generated_at:new Date().toISOString()},{onConflict:"employee_id,slip_month"});
+  if(error) return toast("Generate failed: "+error.message); toast("Salary slip generated & published.");
+}
+
+/* ===================== ADMIN — offer letters ===================== */
+function readOffer(){
+  const g=id=>document.querySelector("#of-"+id).value.trim();
+  return {name:g("name"),email:g("email"),phone:g("phone"),desig:g("desig"),dept:g("dept"),ctc:Number(g("ctc")||0),doj:g("doj"),loc:g("loc"),prob:Number(g("prob")||6)};
+}
+function offerLetterHTML(d){
+  const today=new Date().toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"});
+  const dojL=d.doj?new Date(d.doj).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"}):"—";
+  return `<div class="hd"><img src="${LSA_SEAL}"/><div><h1>Lintel Space Atelier</h1><div class="m">Where luxury meets functionality</div></div></div>
+    <p style="text-align:right" class="m">${today}</p>
+    <p><b>${esc(d.name)}</b>${d.email?"<br>"+esc(d.email):""}${d.phone?"<br>"+esc(d.phone):""}</p>
+    <h2>Letter of Offer</h2>
+    <p>Dear ${esc((d.name||"Candidate").split(" ")[0])},</p>
+    <p>We are delighted to offer you the position of <b>${esc(d.desig||"—")}</b>${d.dept?" in the "+esc(d.dept)+" team":""} at Lintel Space Atelier. We were impressed by your background and are confident you will be a valuable addition to our studio.</p>
+    <p>The key terms of your employment are as follows:</p>
+    <ul>
+      <li><b>Designation:</b> ${esc(d.desig||"—")}</li>
+      ${d.dept?`<li><b>Department:</b> ${esc(d.dept)}</li>`:""}
+      <li><b>Annual CTC:</b> ${inr(d.ctc)}</li>
+      <li><b>Date of joining:</b> ${dojL}</li>
+      <li><b>Work location:</b> ${esc(d.loc||"Bengaluru")}</li>
+      <li><b>Probation period:</b> ${d.prob||6} months from the date of joining</li>
+    </ul>
+    <p>This offer is subject to satisfactory verification of your documents and references. Your detailed appointment terms will be shared on joining.</p>
+    <p>We look forward to welcoming you to the Lintel family.</p>
+    <p style="margin-top:26px">Warm regards,<br><br><b>For Lintel Space Atelier</b><br>Human Resources</p>`;
+}
+function offerPlain(d){
+  const dojL=d.doj||"—";
+  return `Dear ${d.name},\n\nWe are delighted to offer you the position of ${d.desig} at Lintel Space Atelier.\n\nDesignation: ${d.desig}\n${d.dept?"Department: "+d.dept+"\n":""}Annual CTC: ${inr(d.ctc)}\nDate of joining: ${dojL}\nWork location: ${d.loc||"Bengaluru"}\nProbation: ${d.prob||6} months\n\nThis offer is subject to satisfactory verification of your documents and references. We look forward to welcoming you to the Lintel family.\n\nWarm regards,\nFor Lintel Space Atelier\nHuman Resources`;
+}
+function previewOffer(){
+  const d=readOffer(); if(!d.name) return toast("Enter the candidate's name.");
+  const w=window.open("","_blank");
+  w.document.write(`<html><head><title>Offer — ${esc(d.name)}</title><style>${LETTER_CSS}</style></head><body>${offerLetterHTML(d)}<button onclick="window.print()" style="margin-top:24px;padding:10px 18px">Print / Save as PDF</button></body></html>`);
+  w.document.close();
+}
+async function saveOffer(){
+  const d=readOffer(); if(!d.name) return toast("Enter the candidate's name.");
+  const {error}=await sb.from("hr_offer_letters").insert({candidate_name:d.name,candidate_email:d.email,phone:d.phone,designation:d.desig,department:d.dept,ctc_annual:d.ctc,doj:d.doj||null,work_location:d.loc,probation_months:d.prob,body:offerPlain(d),status:"draft",created_by:ME.id});
+  if(error) return toast("Save failed: "+error.message); toast("Offer saved as draft.");
+}
+async function emailOffer(){
+  const d=readOffer(); if(!d.email) return toast("Enter the candidate's email.");
+  try{ await sb.from("hr_offer_letters").insert({candidate_name:d.name,candidate_email:d.email,phone:d.phone,designation:d.desig,department:d.dept,ctc_annual:d.ctc,doj:d.doj||null,work_location:d.loc,probation_months:d.prob,body:offerPlain(d),status:"sent",created_by:ME.id,sent_at:new Date().toISOString()}); }catch(e){}
+  window.location.href=`mailto:${d.email}?subject=${encodeURIComponent("Offer of Employment — Lintel Space Atelier")}&body=${encodeURIComponent(offerPlain(d))}`;
+  toast("Opening your email client…");
+}
+
+/* ===================== ADMIN — employee employment editor ===================== */
+async function editEmp(e){
+  const {data:mg}=await sb.from("employees").select("id,full_name").eq("status","active").order("full_name");
+  const opts=(mg||[]).filter(m=>m.id!==e.id).map(m=>`<option value="${m.id}" ${e.manager_id===m.id?"selected":""}>${esc(m.full_name)}</option>`).join("");
+  const et=["full_time","intern","contract","consultant"].map(t=>`<option value="${t}" ${e.employment_type===t?"selected":""}>${t.replace(/_/g," ")}</option>`).join("");
+  const al=["employee","hr","admin"].map(t=>`<option value="${t}" ${e.access_level===t?"selected":""}>${t}</option>`).join("");
+  openModal("Edit — "+esc(e.full_name), `
+    <div class="grid2">
+      <label class="fld"><span>Employee code</span><input id="em-emp_code" value="${esc(e.emp_code||"")}"/></label>
+      <label class="fld"><span>Designation</span><input id="em-designation" value="${esc(e.designation||"")}"/></label>
+      <label class="fld"><span>Department</span><input id="em-department" value="${esc(e.department||"")}"/></label>
+      <label class="fld"><span>Employment type</span><select id="em-employment_type">${et}</select></label>
+      <label class="fld"><span>Date of joining</span><input id="em-date_of_joining" type="date" value="${e.date_of_joining||""}"/></label>
+      <label class="fld"><span>Probation (months)</span><input id="em-probation_months" type="number" value="${e.probation_months??6}"/></label>
+      <label class="fld"><span>Work location</span><input id="em-work_location" value="${esc(e.work_location||"")}"/></label>
+      <label class="fld"><span>Reporting manager</span><select id="em-manager_id"><option value="">— none —</option>${opts}</select></label>
+      <label class="fld"><span>Access level</span><select id="em-access_level">${al}</select></label>
+    </div>
+    <button class="btn brass full" onclick="saveEmp('${e.id}')">Save</button>`);
+}
+async function saveEmp(id){
+  const v=k=>document.querySelector("#em-"+k).value;
+  const row={ emp_code:v("emp_code")||null, designation:v("designation")||null, department:v("department")||null,
+    employment_type:v("employment_type"), date_of_joining:v("date_of_joining")||null, probation_months:Number(v("probation_months")||6),
+    work_location:v("work_location")||null, manager_id:v("manager_id")||null, access_level:v("access_level"), updated_at:new Date().toISOString() };
+  const {error}=await sb.from("employees").update(row).eq("id",id);
+  if(error) return toast("Save failed: "+error.message);
+  closeModal(); toast("Employee updated."); renderAdmin(document.querySelector("#view"),"employees");
+}
 
 
 setLogos();
