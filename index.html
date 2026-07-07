@@ -398,6 +398,7 @@ async function renderLeave(el){
   const prob=onProbation(), conf=confirmationDate(), y=new Date().getFullYear();
   const um={casual:0,sick:0,earned:0};
   (reqs.data||[]).filter(r=>r.status==="approved" && (r.from_date||"").slice(0,4)==String(y)).forEach(r=>{ if(um[r.leave_type]!==undefined) um[r.leave_type]+=Number(r.days||0); });
+  const co=await availableCompOff();
   const card=(t,label)=>{ const acc=accrued(t), used=um[t]||0, avail=Math.max(0,acc-used);
     return `<div class="stat" style="border-left-color:var(--ink)"><div class="v">${avail}</div><div class="l">${label}</div><div class="l" style="text-transform:none;letter-spacing:0">${acc} accrued · ${used} used</div></div>`; };
   el.innerHTML = `
@@ -409,6 +410,11 @@ async function renderLeave(el){
       <div class="grid3">${card("casual","Casual")}${card("sick","Sick")}${card("earned","Privilege / Earned")}</div>
     </div>
     <div class="card">
+      <div class="row-head"><h3>Compensatory off</h3><button class="btn ghost sm" onclick="compOffModal()">Log comp-off</button></div>
+      <div class="stat" style="border-left-color:var(--brass);max-width:240px"><div class="v">${co}</div><div class="l">Comp-off available</div></div>
+      <div class="h3sub" style="margin-top:10px">Worked on a weekly off or public holiday? Log it here — once approved it's credited as a comp-off day you can take later.</div>
+    </div>
+    <div class="card">
       <h3>Leave policy</h3><div class="h3sub">Lintel Space Atelier — credited pro-rata by tenure</div>
       <table class="t"><tbody>
         <tr><td>Casual leave (CL)</td><td style="text-align:right">6 days / year</td></tr>
@@ -416,8 +422,10 @@ async function renderLeave(el){
         <tr><td>Privilege / earned leave (PL)</td><td style="text-align:right">10 days / year</td></tr>
         <tr><td>During probation</td><td style="text-align:right">No paid leave — Loss of Pay only</td></tr>
         <tr><td>Work from home</td><td style="text-align:right">1 day / week</td></tr>
+        <tr><td>Compensatory off</td><td style="text-align:right">1 day per weekly-off / holiday worked</td></tr>
+        <tr><td>Advance notice</td><td style="text-align:right">CL: 2 days · EL: 7 days</td></tr>
       </tbody></table>
-      <div class="h3sub" style="margin-top:10px;line-height:1.5">Leave is credited pro-rata as you complete each month of service after confirmation. <b>Sandwich rule:</b> weekly offs or holidays that fall between two leave days are also counted as leave — e.g. leave on Friday and Monday counts as 4 days including Saturday and Sunday. Absence without prior approval is treated as Loss of Pay.</div>
+      <div class="h3sub" style="margin-top:10px;line-height:1.5">Leave is credited pro-rata as you complete each month of service after confirmation. <b>Sandwich rule:</b> weekly offs or holidays between two leave days also count as leave (Fri + Mon = 4 days). <b>Comp-off</b> is earned for working on a weekly off or public holiday, credited once approved. Leave is <b>not normally granted during a project handover</b> unless specifically approved. Advance notice: casual 2 days, earned 7 days (sick leave and emergencies exempt). Absence without prior approval is treated as Loss of Pay.</div>
     </div>
     <div class="card">
       <h3>Request history</h3><div class="h3sub"></div>
@@ -435,7 +443,8 @@ function leaveModal(){
       <label class="fld"><span>To</span><input id="lv-to" type="date"/></label>
     </div>
     <label class="fld"><span>Reason</span><input id="lv-reason" placeholder="e.g. Family function"/></label>
-    <div id="lv-hint" class="h3sub" style="margin-bottom:12px"></div>
+    <div id="lv-hint" class="h3sub" style="margin-bottom:6px"></div>
+    <div class="h3sub" style="margin-bottom:12px;line-height:1.5">CL needs 2 days notice, EL needs 7. Leave during a project handover needs prior approval.</div>
     <button class="btn brass full" onclick="submitLeave()">Send request</button>`);
   ["lv-from","lv-to"].forEach(id=>$("#"+id).addEventListener("change",updateLeaveHint));
 }
@@ -448,6 +457,14 @@ async function submitLeave(){
   if(LEAVE_QUOTA[type]!==undefined){
     const avail=accrued(type)-await usedThisYear(type);
     if(days>avail) return toast(`Only ${avail} day(s) of ${labelFor(type)} available. Apply the balance as Loss of Pay.`);
+  }
+  if(NOTICE[type]!==undefined){
+    const noticeDays=Math.round((new Date(from)-new Date(todayISO()))/86400000);
+    if(noticeDays<NOTICE[type]) return toast(`${labelFor(type)} needs ${NOTICE[type]} days advance notice. For urgent time off, use Sick leave or Loss of Pay.`);
+  }
+  if(type==="comp_off"){
+    const avail=await availableCompOff();
+    if(days>avail) return toast(`You have ${avail} comp-off day(s) available.`);
   }
   if(type==="wfh"){
     const wk=weekBounds(from);
@@ -651,6 +668,13 @@ async function renderAdmin(el, tab){
         <td style="white-space:nowrap"><button class="btn sm" onclick="approveLeave('${l.id}','${l.employee_id}','${l.leave_type}',${l.days})">Approve</button>
         <button class="btn ghost sm" onclick="rejectLeave('${l.id}')">Reject</button></td></tr>`).join("")}</tbody></table>`
       :`<div class="empty">No pending leave requests.</div>`;
+  } else if(tab==="compoff"){
+    const {data}=await sb.from("hr_comp_off").select("*").eq("status","pending").order("created_at");
+    body=(data&&data.length)?`<table class="t"><thead><tr><th>Employee</th><th>Worked on</th><th>Reason</th><th></th></tr></thead><tbody>
+      ${data.map(c=>`<tr><td style="font-weight:600">${esc(NAME[c.employee_id]||"—")}</td><td>${dMed(c.work_date)}</td><td>${esc(c.reason||"—")}</td>
+        <td style="white-space:nowrap"><button class="btn sm" onclick="approveCompOff('${c.id}')">Approve</button>
+        <button class="btn ghost sm" onclick="rejectCompOff('${c.id}')">Reject</button></td></tr>`).join("")}</tbody></table>`
+      :`<div class="empty">No comp-off requests pending.</div>`;
   } else if(tab==="kyc"){
     const {data}=await sb.from("hr_kyc_documents").select("*").eq("status","under_review").order("uploaded_at");
     body=(data&&data.length)? data.map(k=>`<div class="doc-row">
@@ -709,14 +733,14 @@ async function renderAdmin(el, tab){
     body=`<table class="t"><thead><tr><th>Name</th><th>Designation</th><th>DOJ</th><th>Access</th><th></th></tr></thead><tbody>
       ${(all||[]).map(e=>`<tr><td style="font-weight:600">${esc(e.full_name)}</td><td>${esc(e.designation||"—")}</td>
         <td>${e.date_of_joining?dMed(e.date_of_joining):"—"}</td><td>${esc(e.access_level)}</td>
-        <td style="text-align:right"><button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
+        <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="viewEmpProfile('${e.id}',${JSON.stringify(e.full_name).replace(/'/g,"&#39;")})">Profile</button> <button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
       </tbody></table>`;
   }
   el.innerHTML=`
     <h2 class="page display">Admin</h2>
     <div class="page-sub">Approvals and verification — visible to admins only.</div>
     <div class="card">
-      <div style="display:flex;gap:8px;margin-bottom:16px">${tb("leave","Leave")}${tb("profiles","Profiles")}${tb("kyc","KYC")}${tb("claims","Claims")}${tb("salary","Salary")}${tb("offers","Offer letters")}${tb("employees","Employees")}</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">${tb("leave","Leave")}${tb("compoff","Comp-off")}${tb("profiles","Profiles")}${tb("kyc","KYC")}${tb("claims","Claims")}${tb("salary","Salary")}${tb("offers","Offer letters")}${tb("employees","Employees")}</div>
       ${body}
     </div>`;
 }
@@ -1001,6 +1025,69 @@ async function usedThisYear(type){
   const y=new Date().getFullYear();
   const {data}=await sb.from("hr_leave_requests").select("days").eq("employee_id",ME.id).eq("leave_type",type).eq("status","approved").gte("from_date",y+"-01-01").lte("from_date",y+"-12-31");
   return (data||[]).reduce((a,r)=>a+Number(r.days||0),0);
+}
+
+
+/* ===================== COMPENSATORY OFF + NOTICE ===================== */
+const NOTICE={casual:2, earned:7};  // days advance notice; sick/LOP/emergencies exempt
+async function availableCompOff(){
+  const [earn,used]=await Promise.all([
+    sb.from("hr_comp_off").select("id").eq("employee_id",ME.id).eq("status","approved"),
+    sb.from("hr_leave_requests").select("days").eq("employee_id",ME.id).eq("leave_type","comp_off").eq("status","approved")
+  ]);
+  const e=(earn.data||[]).length, u=(used.data||[]).reduce((a,r)=>a+Number(r.days||0),0);
+  return Math.max(0, e-u);
+}
+function compOffModal(){
+  openModal("Log compensatory off", `
+    <label class="fld"><span>Date you worked (a weekly off or holiday)</span><input id="co-date" type="date"/></label>
+    <label class="fld"><span>What did you work on?</span><input id="co-reason" placeholder="e.g. Site handover on Sunday"/></label>
+    <button class="btn brass full" onclick="submitCompOff()">Submit for approval</button>`);
+}
+async function submitCompOff(){
+  const date=$("#co-date").value, reason=$("#co-reason").value.trim();
+  if(!date) return toast("Pick the date you worked.");
+  const {error}=await sb.from("hr_comp_off").insert({employee_id:ME.id, work_date:date, reason, status:"pending"});
+  if(error) return toast("Couldn't submit: "+error.message);
+  closeModal(); toast("Comp-off logged — awaiting approval."); render("leave");
+}
+async function approveCompOff(id){ await sb.from("hr_comp_off").update({status:"approved",approved_by:ME.id,decided_at:new Date().toISOString()}).eq("id",id); toast("Comp-off approved & credited."); renderAdmin(document.querySelector("#view"),"compoff"); }
+async function rejectCompOff(id){ await sb.from("hr_comp_off").update({status:"rejected",approved_by:ME.id,decided_at:new Date().toISOString()}).eq("id",id); toast("Comp-off rejected."); renderAdmin(document.querySelector("#view"),"compoff"); }
+
+
+/* ===================== ADMIN — view/edit any employee profile ===================== */
+async function viewEmpProfile(empId, name){
+  const {data:p}=await sb.from("hr_profiles").select("*").eq("employee_id",empId).maybeSingle();
+  let av=""; if(p?.avatar_path){ try{ av=await signedUrl(p.avatar_path);}catch(e){} }
+  const v=f=>esc(p?.[f]??""); const st=p?.profile_status||"none";
+  const badge = st==="approved"?'<span class="pill good">Approved</span>'
+    : st==="submitted"?'<span class="pill warn">Submitted — awaiting approval</span>'
+    : st==="draft"?'<span class="pill mute">Draft</span>':'<span class="pill mute">Not started</span>';
+  openModal("Profile — "+esc(name), `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      <img src="${av}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;background:var(--paper-2);border:1px solid var(--line)"/>
+      <div>${badge}</div>
+    </div>
+    <div class="grid2">
+      <label class="fld"><span>Personal email</span><input id="ep-personal_email" type="email" value="${v('personal_email')}"/></label>
+      <label class="fld"><span>Personal mobile</span><input id="ep-personal_phone" value="${v('personal_phone')}"/></label>
+      <label class="fld"><span>Date of birth</span><input id="ep-dob" type="date" value="${v('dob')}"/></label>
+      <label class="fld"><span>Blood group</span><input id="ep-blood_group" value="${v('blood_group')}"/></label>
+      <label class="fld"><span>Emergency contact name</span><input id="ep-emergency_contact_name" value="${v('emergency_contact_name')}"/></label>
+      <label class="fld"><span>Emergency contact phone</span><input id="ep-emergency_contact_phone" value="${v('emergency_contact_phone')}"/></label>
+    </div>
+    <label class="fld"><span>Address</span><textarea id="ep-address" rows="3">${v('address')}</textarea></label>
+    <button class="btn brass full" onclick="saveEmpProfile('${empId}','${st}')">Save profile</button>`);
+}
+async function saveEmpProfile(empId, st){
+  const g=id=>document.querySelector("#ep-"+id).value.trim();
+  const row={ employee_id:empId, personal_email:g("personal_email"), personal_phone:g("personal_phone"),
+    dob:g("dob")||null, blood_group:g("blood_group"), address:g("address"),
+    emergency_contact_name:g("emergency_contact_name"), emergency_contact_phone:g("emergency_contact_phone"),
+    profile_status: (st==="none"?"draft":st), updated_at:new Date().toISOString() };
+  const {error}=await sb.from("hr_profiles").upsert(row,{onConflict:"employee_id"});
+  if(error) return toast("Save failed: "+error.message);
+  closeModal(); toast("Profile saved.");
 }
 
 
