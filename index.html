@@ -313,14 +313,15 @@ function render(view){
 async function renderOverview(el){
   const h=new Date().getHours();
   const greet = h<12?"Good morning": h<17?"Good afternoon":"Good evening";
-  const [bal, leaves, claims, ts] = await Promise.all([
-    sb.from("hr_leave_balances").select("*").eq("employee_id",ME.id),
+  const [leaves, claims, ts, appr] = await Promise.all([
     sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(5),
     sb.from("hr_reimbursements").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(5),
-    sb.from("hr_timesheets").select("work_date").eq("employee_id",ME.id).eq("work_date",todayISO())
+    sb.from("hr_timesheets").select("work_date").eq("employee_id",ME.id).eq("work_date",todayISO()),
+    sb.from("hr_leave_requests").select("leave_type,days,from_date,status").eq("employee_id",ME.id).eq("status","approved")
   ]);
-  const balances = bal.data||[];
-  const totalLeave = balances.reduce((a,b)=>a+Number(b.balance||0),0);
+  const _y=new Date().getFullYear(), _um={casual:0,sick:0,earned:0};
+  (appr.data||[]).filter(r=>(r.from_date||"").slice(0,4)==String(_y)).forEach(r=>{ if(_um[r.leave_type]!==undefined) _um[r.leave_type]+=Number(r.days||0); });
+  const totalLeave = ["casual","sick","earned"].reduce((a,t)=>a+Math.max(0,accrued(t)-(_um[t]||0)),0);
   const pendingClaims = (claims.data||[]).filter(c=>c.status==="pending").length;
   const submittedToday = (ts.data||[]).length>0;
   el.innerHTML = `
@@ -332,10 +333,8 @@ async function renderOverview(el){
       <div class="stat"><div class="v">${submittedToday?"✓":"—"}</div><div class="l">Today's timesheet</div></div>
     </div>
     <div class="card" style="margin-top:16px">
-      <h3>Leave balance</h3><div class="h3sub">Casual · Sick · Earned</div>
-      ${balances.length? `<div class="grid3">${balances.map(b=>`
-        <div class="stat" style="border-left-color:var(--ink)"><div class="v">${b.balance}</div><div class="l">${esc(b.leave_type)} leave</div></div>`).join("")}</div>`
-        : `<div class="empty">No leave balance set yet. HR assigns balances when you're onboarded.</div>`}
+      <h3>Leave balance</h3><div class="h3sub">Available this year</div>
+      <div class="grid3">${["casual","sick","earned"].map(t=>{const a=Math.max(0,accrued(t)-(_um[t]||0));return `<div class="stat" style="border-left-color:var(--ink)"><div class="v">${a}</div><div class="l">${t==="earned"?"Privilege":t[0].toUpperCase()+t.slice(1)} leave</div></div>`;}).join("")}</div>
     </div>
     <div class="card">
       <div class="row-head"><h3>Recent leave requests</h3><button class="btn ghost sm" onclick="render('leave')">Open leave →</button></div>
@@ -395,30 +394,30 @@ function viewSlip(s){
 
 /* ===================== LEAVE ===================== */
 async function renderLeave(el){
-  const [bal, reqs] = await Promise.all([
-    sb.from("hr_leave_balances").select("*").eq("employee_id",ME.id),
-    sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false})
-  ]);
-  const balances=bal.data||[];
+  const reqs = await sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false});
+  const prob=onProbation(), conf=confirmationDate(), y=new Date().getFullYear();
+  const um={casual:0,sick:0,earned:0};
+  (reqs.data||[]).filter(r=>r.status==="approved" && (r.from_date||"").slice(0,4)==String(y)).forEach(r=>{ if(um[r.leave_type]!==undefined) um[r.leave_type]+=Number(r.days||0); });
+  const card=(t,label)=>{ const acc=accrued(t), used=um[t]||0, avail=Math.max(0,acc-used);
+    return `<div class="stat" style="border-left-color:var(--ink)"><div class="v">${avail}</div><div class="l">${label}</div><div class="l" style="text-transform:none;letter-spacing:0">${acc} accrued · ${used} used</div></div>`; };
   el.innerHTML = `
     <h2 class="page display">Leave</h2>
-    <div class="page-sub">Apply for time off and track your balance. Approvals come from your manager.</div>
+    <div class="page-sub">Apply for time off and track your balance. Approvals come from admin.</div>
+    ${prob?`<div class="cfg-warn" style="display:block">You're on probation${conf?" until "+dMed(conf):""}. Paid leave accrues after confirmation — until then, any time off is Loss of Pay.</div>`:""}
     <div class="card">
-      <div class="row-head"><h3>Your balance</h3><button class="btn brass sm" onclick="leaveModal()">Apply for leave</button></div>
-      ${balances.length?`<div class="grid3">${balances.map(b=>`
-        <div class="stat" style="border-left-color:var(--ink)"><div class="v">${b.balance}</div><div class="l">${esc(b.leave_type)} leave</div></div>`).join("")}</div>`
-        :`<div class="empty">No balance assigned yet — contact HR.</div>`}
+      <div class="row-head"><h3>Your balance (${y})</h3><button class="btn brass sm" onclick="leaveModal()">Apply for leave</button></div>
+      <div class="grid3">${card("casual","Casual")}${card("sick","Sick")}${card("earned","Privilege / Earned")}</div>
     </div>
     <div class="card">
-      <h3>Leave policy</h3><div class="h3sub">As per the Karnataka Shops &amp; Commercial Establishments Act and central acts</div>
+      <h3>Leave policy</h3><div class="h3sub">Lintel Space Atelier — credited pro-rata by tenure</div>
       <table class="t"><tbody>
-        <tr><td>Casual leave</td><td style="text-align:right">12 days / year</td></tr>
-        <tr><td>Sick leave</td><td style="text-align:right">12 days / year</td></tr>
-        <tr><td>Earned / privilege leave</td><td style="text-align:right">18 days / year (carry-forward up to 45)</td></tr>
-        <tr><td>Maternity leave</td><td style="text-align:right">26 weeks</td></tr>
-        <tr><td>Paternity / bereavement</td><td style="text-align:right">Company policy</td></tr>
+        <tr><td>Casual leave (CL)</td><td style="text-align:right">6 days / year</td></tr>
+        <tr><td>Sick leave (SL)</td><td style="text-align:right">6 days / year</td></tr>
+        <tr><td>Privilege / earned leave (PL)</td><td style="text-align:right">10 days / year</td></tr>
+        <tr><td>During probation</td><td style="text-align:right">No paid leave — Loss of Pay only</td></tr>
         <tr><td>Work from home</td><td style="text-align:right">1 day / week</td></tr>
       </tbody></table>
+      <div class="h3sub" style="margin-top:10px;line-height:1.5">Leave is credited pro-rata as you complete each month of service after confirmation. <b>Sandwich rule:</b> weekly offs or holidays that fall between two leave days are also counted as leave — e.g. leave on Friday and Monday counts as 4 days including Saturday and Sunday. Absence without prior approval is treated as Loss of Pay.</div>
     </div>
     <div class="card">
       <h3>Request history</h3><div class="h3sub"></div>
@@ -429,7 +428,8 @@ async function renderLeave(el){
 function leaveModal(){
   openModal("Apply for leave", `
     <label class="fld"><span>Leave type</span>
-      <select id="lv-type">${LEAVE_TYPES.map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select></label>
+      <select id="lv-type">${(onProbation()?[["lop","Loss of pay"]]:LEAVE_TYPES).map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select></label>
+    ${onProbation()?'<div class="cfg-warn" style="display:block">You are on probation — only Loss of Pay applies. Paid leave accrues after confirmation.</div>':''}
     <div class="grid2">
       <label class="fld"><span>From</span><input id="lv-from" type="date"/></label>
       <label class="fld"><span>To</span><input id="lv-to" type="date"/></label>
@@ -442,9 +442,13 @@ function leaveModal(){
 async function submitLeave(){
   const type=$("#lv-type").value, from=$("#lv-from").value, to=$("#lv-to").value, reason=$("#lv-reason").value.trim();
   if(!from||!to) return toast("Pick both dates.");
-  const calc=workingLeaveDays(from,to);
-  const days=calc.days;
-  if(days<1) return toast("That range has no working days to deduct.");
+  const days=leaveSpan(from,to);
+  if(days<1) return toast("The end date can't be before the start date.");
+  if(onProbation() && type!=="lop") return toast("You're on probation — only Loss of Pay can be applied right now.");
+  if(LEAVE_QUOTA[type]!==undefined){
+    const avail=accrued(type)-await usedThisYear(type);
+    if(days>avail) return toast(`Only ${avail} day(s) of ${labelFor(type)} available. Apply the balance as Loss of Pay.`);
+  }
   if(type==="wfh"){
     const wk=weekBounds(from);
     const {data:ex}=await sb.from("hr_leave_requests").select("id").eq("employee_id",ME.id).eq("leave_type","wfh").in("status",["pending","approved"]).gte("from_date",wk[0]).lte("from_date",wk[1]);
@@ -610,10 +614,9 @@ function workingLeaveDays(from,to){
 function updateLeaveHint(){
   const f=$("#lv-from").value, t=$("#lv-to").value, h=$("#lv-hint");
   if(!f||!t){ h.textContent=""; return; }
-  const r=workingLeaveDays(f,t);
-  const ex=[]; if(r.weekends) ex.push(r.weekends+" weekend day"+(r.weekends>1?"s":""));
-  if(r.holidays) ex.push(r.holidays+" holiday"+(r.holidays>1?"s":""));
-  h.textContent = r.days+" leave day"+(r.days!==1?"s":"") + (ex.length?" — excludes "+ex.join(" & "):"");
+  const total=leaveSpan(f,t); if(total<1){ h.textContent="End date is before start date."; return; }
+  const b=workingLeaveDays(f,t); const off=b.weekends+b.holidays;
+  h.textContent = total+" day"+(total!==1?"s":"")+" will be deducted"+(off>0?` (includes ${off} weekend/holiday day${off>1?"s":""} — sandwich rule)`:"");
 }
 async function renderHolidays(el){
   if(!HOLIDAYS.length) await loadHolidays();
@@ -719,9 +722,7 @@ async function renderAdmin(el, tab){
 }
 async function approveLeave(id, emp, type, days){
   await sb.from("hr_leave_requests").update({status:"approved",approver_id:ME.id,decided_at:new Date().toISOString()}).eq("id",id);
-  const {data:b}=await sb.from("hr_leave_balances").select("balance").eq("employee_id",emp).eq("leave_type",type).maybeSingle();
-  if(b) await sb.from("hr_leave_balances").update({balance:Math.max(0,Number(b.balance)-Number(days)),updated_at:new Date().toISOString()}).eq("employee_id",emp).eq("leave_type",type);
-  toast("Leave approved — balance updated."); renderAdmin(document.querySelector("#view"),"leave");
+  toast("Leave approved."); renderAdmin(document.querySelector("#view"),"leave");
 }
 async function rejectLeave(id){ await sb.from("hr_leave_requests").update({status:"rejected",approver_id:ME.id,decided_at:new Date().toISOString()}).eq("id",id); toast("Leave rejected."); renderAdmin(document.querySelector("#view"),"leave"); }
 async function verifyKyc(id){ await sb.from("hr_kyc_documents").update({status:"verified",verified_by:ME.id,verified_at:new Date().toISOString()}).eq("id",id); toast("Document verified."); renderAdmin(document.querySelector("#view"),"kyc"); }
@@ -976,6 +977,30 @@ async function saveEmp(id){
   const {error}=await sb.from("employees").update(row).eq("id",id);
   if(error) return toast("Save failed: "+error.message);
   closeModal(); toast("Employee updated."); renderAdmin(document.querySelector("#view"),"employees");
+}
+
+
+/* ===================== LEAVE ACCRUAL (Lintel policy) ===================== */
+const LEAVE_QUOTA={casual:6, sick:6, earned:10};   // days/year, credited pro-rata after confirmation
+function labelFor(t){ const m=LEAVE_TYPES.find(x=>x[0]===t); return m?m[1]:t; }
+function leaveSpan(from,to){ return Math.round((new Date(to)-new Date(from))/86400000)+1; }  // calendar-inclusive (sandwich rule)
+function confirmationDate(){ return ME.date_of_joining ? addMonths(ME.date_of_joining, ME.probation_months==null?6:ME.probation_months) : null; }
+function onProbation(){ const c=confirmationDate(); return c ? (new Date() < new Date(c)) : false; }
+function accrued(type){
+  const annual=LEAVE_QUOTA[type]; if(annual===undefined) return 0;
+  const c=confirmationDate(); if(!c) return annual;            // no DOJ on record → show full as fallback
+  const now=new Date(), conf=new Date(c);
+  if(now<conf) return 0;                                       // still on probation
+  const yStart=new Date(now.getFullYear(),0,1);
+  const start = conf>yStart ? conf : yStart;                   // accrue from later of confirmation or Jan 1
+  let months=(now.getFullYear()-start.getFullYear())*12 + (now.getMonth()-start.getMonth()) + 1;
+  months=Math.max(0,Math.min(12,months));
+  return Math.round(annual/12*months*2)/2;                     // round to nearest 0.5
+}
+async function usedThisYear(type){
+  const y=new Date().getFullYear();
+  const {data}=await sb.from("hr_leave_requests").select("days").eq("employee_id",ME.id).eq("leave_type",type).eq("status","approved").gte("from_date",y+"-01-01").lte("from_date",y+"-12-31");
+  return (data||[]).reduce((a,r)=>a+Number(r.days||0),0);
 }
 
 
