@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lintel People — Employee Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#172136; --ink-soft:#25324D; --paper:#F7F6F1; --card:#FFFFFF;
+    --line:#E6E2D7; --line-2:#DAD4C7; --brass:#A9812F; --brass-dark:#8C6A24; --brass-tint:#F4EDDD;
+    --green:#3E7A5E; --green-tint:#E8F1EC; --red:#B04A3A; --red-tint:#F7E9E6;
+    --amber:#B5860B; --amber-tint:#FBF3E2; --grey:#6B7280; --radius:11px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:'Inter',system-ui,sans-serif; background:var(--paper); color:var(--ink); -webkit-font-smoothing:antialiased;}
+  .display{font-family:'Fraunces',Georgia,serif;}
+  button{font-family:inherit; cursor:pointer;}
+  input,select,textarea{font-family:inherit; width:100%; padding:11px 13px; font-size:13.5px; color:var(--ink);
+    border:1px solid var(--line-2); border-radius:10px; background:#FCFBF8; outline:none;}
+  input:focus,select:focus,textarea:focus{border-color:var(--brass);}
+  label.fld{display:block; margin-bottom:14px;}
+  label.fld > span{font-size:12px; font-weight:600; color:var(--ink-soft); display:block; margin-bottom:6px;}
+  .btn{display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:11px 20px; font-size:13.5px;
+    font-weight:600; border-radius:10px; border:1px solid var(--ink); background:var(--ink); color:#fff;}
+  .btn.brass{background:var(--brass); border-color:var(--brass);}
+  .btn.ghost{background:transparent; color:var(--ink); border-color:var(--line-2);}
+  .btn.sm{padding:7px 13px; font-size:12.5px;}
+  .btn.full{width:100%;}
+  .btn:disabled{opacity:.55; cursor:default;}
+
+  /* ---------- login ---------- */
+  #login{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    background:radial-gradient(1200px 600px at 50% -10%, #202C46 0%, var(--ink) 55%);}
+  .login-card{width:100%; max-width:400px; background:var(--card); border-radius:16px; padding:34px 30px;
+    box-shadow:0 24px 60px rgba(9,14,26,.42); border:1px solid rgba(255,255,255,.06);}
+  .login-mark{width:46px; height:46px; border-radius:50%; background:var(--brass-tint); border:1.5px solid var(--brass);
+    display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:600; font-size:20px; color:var(--brass-dark); margin-bottom:18px;}
+  .login-card h1{font-family:'Fraunces',serif; font-size:24px; font-weight:600; letter-spacing:.2px;}
+  .login-card .sub{color:var(--grey); font-size:13px; margin:6px 0 24px;}
+  .gbtn{width:100%; padding:12px 14px; border:1px solid var(--line-2); border-radius:10px; background:#fff;
+    font-size:14.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:16px;}
+  .gbtn:disabled{opacity:.6;}
+  .divider{display:flex; align-items:center; gap:12px; color:var(--grey); font-size:11.5px; margin:6px 0 16px;}
+  .divider::before,.divider::after{content:""; flex:1; height:1px; background:var(--line);}
+  .login-err{display:none; background:var(--red-tint); color:var(--red); font-size:12.5px; padding:9px 12px; border-radius:8px; margin-bottom:14px;}
+  .cfg-warn{display:none; background:var(--amber-tint); color:var(--amber); font-size:12.5px; padding:10px 12px; border-radius:8px; margin-bottom:14px;}
+
+  /* ---------- app shell ---------- */
+  #app{display:none; min-height:100vh;}
+  .shell{display:flex; min-height:100vh;}
+  aside{width:236px; background:var(--ink); color:#fff; padding:24px 15px; display:flex; flex-direction:column;
+    position:sticky; top:0; height:100vh; flex-shrink:0;}
+  .brand{display:flex; align-items:center; gap:10px; margin-bottom:30px; padding-left:6px;}
+  .brand .mk{width:34px; height:34px; border-radius:50%; background:var(--brass-tint); border:1.5px solid var(--brass);
+    display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:600; font-size:15px; color:var(--brass-dark);}
+  .brand .nm{font-family:'Fraunces',serif; font-size:17px; font-weight:600;}
+  .brand .tag{font-size:10px; color:#8B96AE; letter-spacing:.6px;}
+  .nav-btn{display:flex; align-items:center; gap:11px; width:100%; padding:10px 12px; border-radius:9px; border:none;
+    background:transparent; color:#9AA5BC; font-size:13.5px; font-weight:600; text-align:left; margin-bottom:3px; border-left:2px solid transparent;}
+  .nav-btn:hover{color:#fff; background:rgba(255,255,255,.05);}
+  .nav-btn.active{color:#fff; background:rgba(255,255,255,.09); border-left-color:var(--brass);}
+  .who{margin-top:auto; border-top:1px solid rgba(255,255,255,.1); padding-top:14px;}
+  .who .n{font-size:13px; font-weight:600;} .who .e{font-size:11px; color:#8B96AE; margin-top:1px;}
+  main{flex:1; padding:30px 34px; max-width:1080px;}
+  #menuBtn{display:none;}
+
+  h2.page{font-family:'Fraunces',serif; font-size:26px; font-weight:600; margin-bottom:3px;}
+  .page-sub{color:var(--grey); font-size:13px; margin-bottom:22px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; margin-bottom:16px;}
+  .card h3{font-size:14px; font-weight:700; margin-bottom:2px;}
+  .card .h3sub{font-size:12px; color:var(--grey); margin-bottom:14px;}
+  .row-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .stat{background:var(--card); border:1px solid var(--line); border-left:3px solid var(--brass); border-radius:var(--radius); padding:16px 18px;}
+  .stat .v{font-family:'Fraunces',serif; font-size:24px; font-weight:600;}
+  .stat .l{font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:.4px; margin-top:3px;}
+
+  table.t{width:100%; border-collapse:collapse; font-size:13px;}
+  table.t th{text-align:left; padding:9px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--grey); border-bottom:1px solid var(--line);}
+  table.t td{padding:11px 12px; border-bottom:1px solid var(--paper); vertical-align:middle;}
+  .pill{display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:600;}
+  .pill.good{background:var(--green-tint); color:var(--green);}
+  .pill.warn{background:var(--amber-tint); color:var(--amber);}
+  .pill.bad{background:var(--red-tint); color:var(--red);}
+  .pill.mute{background:#EEEAE0; color:var(--grey);}
+  .empty{padding:22px; text-align:center; color:var(--grey); font-size:13px;}
+
+  .doc-row{display:flex; align-items:center; justify-content:space-between; padding:13px 0; border-bottom:1px solid var(--paper);}
+  .doc-row:last-child{border-bottom:none;}
+  .doc-name{font-weight:600; font-size:13.5px;} .doc-meta{font-size:11.5px; color:var(--grey); margin-top:2px;}
+  .drop{display:flex; align-items:center; gap:8px; border:1.5px dashed var(--line-2); border-radius:10px; padding:12px 13px;
+    cursor:pointer; font-size:13px; color:var(--grey); background:#FCFBF8;}
+
+  .week{display:flex; gap:8px; margin:6px 0 16px; flex-wrap:wrap;}
+  .day{flex:1; min-width:78px; border:1px solid var(--line); border-radius:10px; padding:10px; text-align:center;}
+  .day.done{background:var(--green-tint); border-color:#CFE4D8;}
+  .day.today{border-color:var(--brass); box-shadow:0 0 0 2px var(--brass-tint);}
+  .day .dow{font-size:10.5px; color:var(--grey); text-transform:uppercase; letter-spacing:.4px;}
+  .day .dt{font-family:'Fraunces',serif; font-size:16px; font-weight:600; margin:2px 0;}
+  .day .st{font-size:10px; font-weight:600;}
+  .stamp{display:inline-block; border:2px solid var(--green); color:var(--green); font-weight:700; font-size:12px;
+    padding:3px 10px; border-radius:6px; transform:rotate(-6deg); letter-spacing:1px; opacity:0; transition:opacity .35s;}
+  .stamp.show{opacity:1;}
+
+  /* modal + toast */
+  .modal-bg{position:fixed; inset:0; background:rgba(15,20,32,.5); display:flex; align-items:center; justify-content:center; padding:20px; z-index:80;}
+  .modal{background:var(--card); border-radius:14px; padding:24px; width:100%; max-width:440px; box-shadow:0 20px 50px rgba(0,0,0,.3);}
+  .modal h3{font-family:'Fraunces',serif; font-size:19px; font-weight:600; margin-bottom:16px;}
+  #toast{position:fixed; bottom:26px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff;
+    padding:11px 18px; border-radius:10px; font-size:13px; opacity:0; pointer-events:none; transition:opacity .25s; z-index:90;}
+  #toast.show{opacity:1;}
+  .load{padding:40px; text-align:center; color:var(--grey); font-size:13px;}
+
+  @media(max-width:760px){
+    aside{position:fixed; left:-260px; z-index:70; transition:left .2s;}
+    aside.open{left:0;}
+    main{padding:20px 16px;}
+    #menuBtn{display:inline-flex; margin-bottom:14px;}
+    .grid3,.grid2{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="login">
+  <div class="login-card">
+    <div class="login-mark display">L</div>
+    <h1 class="display">Lintel People</h1>
+    <div class="sub">Employee self-service — letters, salary, leave, claims &amp; timesheets.</div>
+    <div class="cfg-warn" id="cfgWarn">Supabase keys not set. Open this file and fill in the config at the top of the script.</div>
+    <div class="login-err" id="loginErr"></div>
+    <button class="gbtn" id="googleBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.28-4.74 3.28-8.09Z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84Z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.05l3.66 2.84C6.71 7.29 9.14 5.38 12 5.38Z"/></svg>
+      Continue with Google
+    </button>
+    <div class="divider">or sign in with email</div>
+    <label class="fld"><span>Work email</span><input id="emailIn" type="email" placeholder="you@lintelspace.com" autocomplete="username"/></label>
+    <label class="fld"><span>Password</span><input id="passIn" type="password" placeholder="••••••••" autocomplete="current-password"/></label>
+    <button class="btn brass full" id="signinBtn">Sign in</button>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app">
+  <div class="shell">
+    <aside id="sidebar">
+      <div class="brand">
+        <div class="mk display">L</div>
+        <div><div class="nm display">Lintel People</div><div class="tag">EMPLOYEE PORTAL</div></div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="who">
+        <div class="n" id="whoName">—</div>
+        <div class="e" id="whoMeta">—</div>
+        <button class="nav-btn" id="logoutBtn" style="margin-top:12px">⏻ Sign out</button>
+      </div>
+    </aside>
+    <main>
+      <button class="btn ghost sm" id="menuBtn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰ Menu</button>
+      <div id="view"></div>
+    </main>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ===================== CONFIG (shared with Lintel OS) ===================== */
+const SUPABASE_URL      = "https://cxgxmqspvpuizvwfbnjq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4Z3htcXNwdnB1aXp2d2ZibmpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MDEwMDUsImV4cCI6MjA5Njk3NzAwNX0.cPbcB9m-WSAC2e8nOD_vdp2mrAeDaisk4-nET5eo8lE";
+const ALLOWED_DOMAIN    = "lintelspace.com";
+const BUCKET            = "employee-docs";
+
+/* ===================== helpers ===================== */
+const $  = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const inr = n => "₹" + Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:0});
+const dMed = d => d ? new Date(d).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}) : "—";
+const monthLbl = d => new Date(d).toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+const todayISO = () => new Date().toISOString().slice(0,10);
+function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2600); }
+function pill(status){
+  const s=String(status||"").toLowerCase();
+  const good=["approved","verified","paid","submitted","published"], warn=["pending","under_review","onboarding","draft"];
+  const cls = good.includes(s)?"good": warn.includes(s)?"warn": (s==="missing"?"mute":"bad");
+  const label = s.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+  return `<span class="pill ${cls}">${esc(label)}</span>`;
+}
+
+let sb=null, ME=null;
+const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length>20;
+
+/* ===================== storage ===================== */
+async function uploadDoc(category, file){
+  const safe = file.name.replace(/[^\w.\-]+/g,"_");
+  const path = `${ME.id}/${category}/${Date.now()}_${safe}`;
+  const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert:false });
+  if(error) throw error;
+  return path;
+}
+async function signedUrl(path){
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(path, 120);
+  if(error) throw error;
+  return data.signedUrl;
+}
+async function openDoc(path){
+  try{ const url = await signedUrl(path); window.open(url,"_blank"); }
+  catch(e){ toast("Couldn't open the file: "+(e.message||"error")); }
+}
+
+/* ===================== auth ===================== */
+if(!cfgOk){ $("#cfgWarn").style.display="block"; }
+else {
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const showErr = m => { const e=$("#loginErr"); e.style.display="block"; e.textContent=m; };
+  const resetBtn = () => { const b=$("#signinBtn"); b.disabled=false; b.textContent="Sign in"; };
+
+  const signIn = async () => {
+    const email=($("#emailIn").value||"").trim().toLowerCase(), password=$("#passIn").value;
+    $("#loginErr").style.display="none";
+    if(!email.endsWith("@"+ALLOWED_DOMAIN)) return showErr("Please use your @"+ALLOWED_DOMAIN+" email address.");
+    if(!password) return showErr("Please enter your password.");
+    $("#signinBtn").disabled=true; $("#signinBtn").textContent="Signing in…";
+    try{
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if(error){ resetBtn(); return showErr(error.message); }
+      if(data?.session){ resetBtn(); enter(data.session); } else { resetBtn(); showErr("Signed in but no session. Try again."); }
+    }catch(e){ resetBtn(); showErr("Login failed: "+(e.message||"unknown error")); }
+  };
+  $("#signinBtn").onclick=signIn;
+  $("#passIn").addEventListener("keydown",e=>{ if(e.key==="Enter") signIn(); });
+
+  const gBtn=$("#googleBtn");
+  gBtn.onclick=async()=>{
+    gBtn.disabled=true;
+    try{
+      const { error } = await sb.auth.signInWithOAuth({
+        provider:"google",
+        options:{ redirectTo: location.href.split("#")[0].split("?")[0], queryParams:{ hd:ALLOWED_DOMAIN, prompt:"select_account" } }
+      });
+      if(error){ gBtn.disabled=false; showErr(error.message); }
+    }catch(e){ gBtn.disabled=false; showErr("Google sign-in failed: "+(e.message||"unknown")); }
+  };
+  $("#logoutBtn").onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
+  sb.auth.onAuthStateChange((_e,session)=> session ? enter(session) : null);
+  sb.auth.getSession().then(({data})=> data.session && enter(data.session)).catch(()=>{});
+}
+
+async function enter(session){
+  if(window.__entered) return; window.__entered=true;
+  try{
+    const email = session.user.email || "";
+    if(!email.endsWith("@"+ALLOWED_DOMAIN)){
+      await sb.auth.signOut(); alert("Lintel People is restricted to @"+ALLOWED_DOMAIN+" accounts."); return location.reload();
+    }
+    // resolve the employee record (RLS returns only the caller's own row)
+    const { data:emp } = await sb.from("employees").select("*").eq("work_email", email).maybeSingle();
+    if(!emp){
+      await sb.auth.signOut();
+      alert("You're signed in, but you're not set up as a Lintel employee yet. Please contact HR to be added.");
+      return location.reload();
+    }
+    ME = emp;
+    $("#login").style.display="none";
+    $("#app").style.display="block";
+    $("#whoName").textContent = ME.full_name;
+    $("#whoMeta").textContent = [ME.emp_code, ME.designation].filter(Boolean).join(" · ") || email;
+    buildNav();
+    render("overview");
+  }catch(e){
+    window.__entered=false;
+    const el=$("#loginErr"); el.style.display="block"; el.textContent="Could not load your portal: "+(e.message||"unknown")+". Refresh and try again.";
+    const b=$("#signinBtn"); b.disabled=false; b.textContent="Sign in";
+  }
+}
+
+/* ===================== nav + router ===================== */
+const NAV = [
+  ["overview","◳ Overview"], ["documents","▤ My documents"], ["leave","▦ Leave"],
+  ["claims","⬡ Reimbursements"], ["kyc","⇧ Uploads & KYC"], ["timesheet","◷ Timesheet"]
+];
+function buildNav(){
+  $("#nav").innerHTML = NAV.map(([id,l])=>`<button class="nav-btn" data-view="${id}">${l}</button>`).join("");
+  $("#nav").querySelectorAll(".nav-btn").forEach(b=>{
+    b.onclick=()=>{ setActive(b.dataset.view); render(b.dataset.view); document.getElementById("sidebar").classList.remove("open"); };
+  });
+}
+function setActive(v){ $("#nav").querySelectorAll(".nav-btn").forEach(x=>x.classList.toggle("active",x.dataset.view===v)); }
+function render(view){
+  setActive(view);
+  const el=$("#view"); el.innerHTML=`<div class="load">Loading…</div>`;
+  ({overview:renderOverview, documents:renderDocuments, leave:renderLeave, claims:renderClaims, kyc:renderKyc, timesheet:renderTimesheet}[view]||renderOverview)(el);
+}
+
+/* ===================== OVERVIEW ===================== */
+async function renderOverview(el){
+  const h=new Date().getHours();
+  const greet = h<12?"Good morning": h<17?"Good afternoon":"Good evening";
+  const [bal, leaves, claims, ts] = await Promise.all([
+    sb.from("hr_leave_balances").select("*").eq("employee_id",ME.id),
+    sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(5),
+    sb.from("hr_reimbursements").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(5),
+    sb.from("hr_timesheets").select("work_date").eq("employee_id",ME.id).eq("work_date",todayISO())
+  ]);
+  const balances = bal.data||[];
+  const totalLeave = balances.reduce((a,b)=>a+Number(b.balance||0),0);
+  const pendingClaims = (claims.data||[]).filter(c=>c.status==="pending").length;
+  const submittedToday = (ts.data||[]).length>0;
+  el.innerHTML = `
+    <h2 class="page display">${greet}, ${esc(ME.full_name.split(" ")[0])}</h2>
+    <div class="page-sub">${esc(ME.designation||"Team member")}${ME.department?" · "+esc(ME.department):""}</div>
+    <div class="grid3">
+      <div class="stat"><div class="v">${totalLeave}</div><div class="l">Leave days available</div></div>
+      <div class="stat"><div class="v">${pendingClaims}</div><div class="l">Claims pending</div></div>
+      <div class="stat"><div class="v">${submittedToday?"✓":"—"}</div><div class="l">Today's timesheet</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Leave balance</h3><div class="h3sub">Casual · Sick · Earned</div>
+      ${balances.length? `<div class="grid3">${balances.map(b=>`
+        <div class="stat" style="border-left-color:var(--ink)"><div class="v">${b.balance}</div><div class="l">${esc(b.leave_type)} leave</div></div>`).join("")}</div>`
+        : `<div class="empty">No leave balance set yet. HR assigns balances when you're onboarded.</div>`}
+    </div>
+    <div class="card">
+      <div class="row-head"><h3>Recent leave requests</h3><button class="btn ghost sm" onclick="render('leave')">Open leave →</button></div>
+      ${tableOrEmpty(leaves.data, ["Type","Dates","Days","Status"], l=>[
+        esc(l.leave_type), dMed(l.from_date)+" – "+dMed(l.to_date), l.days, pill(l.status)], "No leave requests yet.")}
+    </div>`;
+}
+function tableOrEmpty(rows, cols, mapfn, emptyMsg){
+  rows = rows||[];
+  if(!rows.length) return `<div class="empty">${esc(emptyMsg)}</div>`;
+  return `<table class="t"><thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${mapfn(r).map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+/* ===================== DOCUMENTS (letters + salary slips) ===================== */
+async function renderDocuments(el){
+  const [letters, slips] = await Promise.all([
+    sb.from("hr_employment_letters").select("*").eq("employee_id",ME.id).order("issued_on",{ascending:false}),
+    sb.from("hr_salary_slips").select("*").eq("employee_id",ME.id).eq("status","published").order("slip_month",{ascending:false})
+  ]);
+  const L=letters.data||[], S=slips.data||[];
+  el.innerHTML = `
+    <h2 class="page display">My documents</h2>
+    <div class="page-sub">Employment letters and monthly salary slips issued by Lintel.</div>
+    <div class="card">
+      <h3>Employment letters</h3><div class="h3sub">Offer &amp; appointment letters on Lintel letterhead</div>
+      ${L.length? L.map(l=>`
+        <div class="doc-row">
+          <div><div class="doc-name">${l.letter_type==="offer"?"Offer letter":"Appointment letter"}</div>
+            <div class="doc-meta">Issued ${dMed(l.issued_on)}</div></div>
+          ${l.file_path?`<button class="btn ghost sm" onclick="openDoc('${esc(l.file_path)}')">View</button>`:`<span class="pill mute">Not uploaded</span>`}
+        </div>`).join("") : `<div class="empty">No letters issued yet.</div>`}
+    </div>
+    <div class="card">
+      <h3>Salary slips</h3><div class="h3sub">Generated monthly by payroll</div>
+      ${S.length? `<table class="t"><thead><tr><th>Month</th><th>Gross</th><th>Net pay</th><th></th></tr></thead><tbody>
+        ${S.map(s=>`<tr>
+          <td style="font-weight:600">${monthLbl(s.slip_month)}</td>
+          <td>${inr(s.gross)}</td><td style="font-weight:600">${inr(s.net_pay)}</td>
+          <td style="text-align:right">${s.pdf_path?`<button class="btn ghost sm" onclick="openDoc('${esc(s.pdf_path)}')">Download</button>`
+            :`<button class="btn ghost sm" onclick='viewSlip(${JSON.stringify(s).replace(/'/g,"&#39;")})'>View</button>`}</td>
+        </tr>`).join("")}</tbody></table>`
+        : `<div class="empty">No salary slips yet.</div>`}
+    </div>`;
+}
+function viewSlip(s){
+  const e=Object.entries(s.earnings||{}), d=Object.entries(s.deductions||{});
+  const rows=arr=>arr.map(([k,v])=>`<tr><td>${esc(k.replace(/_/g," "))}</td><td style="text-align:right">${inr(v)}</td></tr>`).join("")||`<tr><td class="empty">—</td></tr>`;
+  openModal(`Salary slip — ${monthLbl(s.slip_month)}`, `
+    <div class="grid2">
+      <div><div class="h3sub">Earnings</div><table class="t"><tbody>${rows(e)}</tbody></table></div>
+      <div><div class="h3sub">Deductions</div><table class="t"><tbody>${rows(d)}</tbody></table></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-weight:700">
+      <span>Net pay</span><span>${inr(s.net_pay)}</span></div>`);
+}
+
+/* ===================== LEAVE ===================== */
+async function renderLeave(el){
+  const [bal, reqs] = await Promise.all([
+    sb.from("hr_leave_balances").select("*").eq("employee_id",ME.id),
+    sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false})
+  ]);
+  const balances=bal.data||[];
+  el.innerHTML = `
+    <h2 class="page display">Leave</h2>
+    <div class="page-sub">Apply for time off and track your balance. Approvals come from your manager.</div>
+    <div class="card">
+      <div class="row-head"><h3>Your balance</h3><button class="btn brass sm" onclick="leaveModal()">Apply for leave</button></div>
+      ${balances.length?`<div class="grid3">${balances.map(b=>`
+        <div class="stat" style="border-left-color:var(--ink)"><div class="v">${b.balance}</div><div class="l">${esc(b.leave_type)} leave</div></div>`).join("")}</div>`
+        :`<div class="empty">No balance assigned yet — contact HR.</div>`}
+    </div>
+    <div class="card">
+      <h3>Request history</h3><div class="h3sub"></div>
+      ${tableOrEmpty(reqs.data,["Type","From","To","Days","Reason","Status"], l=>[
+        esc(l.leave_type), dMed(l.from_date), dMed(l.to_date), l.days, esc(l.reason||"—"), pill(l.status)],"No requests yet.")}
+    </div>`;
+}
+function leaveModal(){
+  openModal("Apply for leave", `
+    <label class="fld"><span>Leave type</span>
+      <select id="lv-type">${["casual","sick","earned"].map(t=>`<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join("")}</select></label>
+    <div class="grid2">
+      <label class="fld"><span>From</span><input id="lv-from" type="date"/></label>
+      <label class="fld"><span>To</span><input id="lv-to" type="date"/></label>
+    </div>
+    <label class="fld"><span>Reason</span><input id="lv-reason" placeholder="e.g. Family function"/></label>
+    <button class="btn brass full" onclick="submitLeave()">Send request</button>`);
+}
+async function submitLeave(){
+  const type=$("#lv-type").value, from=$("#lv-from").value, to=$("#lv-to").value, reason=$("#lv-reason").value.trim();
+  if(!from||!to) return toast("Pick both dates.");
+  const days=Math.round((new Date(to)-new Date(from))/86400000)+1;
+  if(days<1) return toast("The end date can't be before the start date.");
+  const { error } = await sb.from("hr_leave_requests").insert({
+    employee_id:ME.id, leave_type:type, from_date:from, to_date:to, days, reason, status:"pending" });
+  if(error) return toast("Couldn't submit: "+error.message);
+  closeModal(); toast("Leave request sent to your manager."); render("leave");
+}
+
+/* ===================== REIMBURSEMENTS ===================== */
+async function renderClaims(el){
+  const { data } = await sb.from("hr_reimbursements").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false});
+  el.innerHTML = `
+    <h2 class="page display">Reimbursements</h2>
+    <div class="page-sub">Submit expense claims with receipts. Finance usually settles within 7 working days.</div>
+    <div class="card">
+      <div class="row-head"><h3>Your claims</h3><button class="btn brass sm" onclick="claimModal()">New claim</button></div>
+      ${tableOrEmpty(data,["Date","Category","Amount","Note","Receipt","Status"], c=>[
+        dMed(c.expense_date), esc(c.category), inr(c.amount), esc(c.note||"—"),
+        c.receipt_path?`<button class="btn ghost sm" onclick="openDoc('${esc(c.receipt_path)}')">View</button>`:"—",
+        pill(c.status)],"No claims yet.")}
+    </div>`;
+}
+function claimModal(){
+  openModal("New reimbursement claim", `
+    <label class="fld"><span>Category</span>
+      <select id="cl-cat">${["Travel","Meals","Internet","Office supplies","Learning & courses","Medical","Other"].map(c=>`<option>${c}</option>`).join("")}</select></label>
+    <div class="grid2">
+      <label class="fld"><span>Amount (₹)</span><input id="cl-amt" type="number" min="1" placeholder="0"/></label>
+      <label class="fld"><span>Expense date</span><input id="cl-date" type="date"/></label>
+    </div>
+    <label class="fld"><span>Note</span><input id="cl-note" placeholder="e.g. Cab to client site"/></label>
+    <label class="fld"><span>Receipt (PDF or image)</span>
+      <label class="drop" id="cl-drop">⇧ <span id="cl-fname">Attach a receipt</span>
+        <input type="file" accept=".pdf,image/*" style="display:none" onchange="pickFile(this,'cl-fname')"/></label></label>
+    <button class="btn brass full" id="cl-submit" onclick="submitClaim()">Submit claim</button>`);
+  window.__claimFile=null;
+}
+let __claimFile=null;
+function pickFile(input,labelId){ const f=input.files[0]; if(!f)return; window.__claimFile=f; $("#"+labelId).textContent=f.name; }
+async function submitClaim(){
+  const amt=$("#cl-amt").value, date=$("#cl-date").value, note=$("#cl-note").value.trim(), cat=$("#cl-cat").value;
+  if(!amt||!date||!window.__claimFile) return toast("Amount, date and a receipt are required.");
+  const btn=$("#cl-submit"); btn.disabled=true; btn.textContent="Submitting…";
+  try{
+    const path = await uploadDoc("receipts", window.__claimFile);
+    const { error } = await sb.from("hr_reimbursements").insert({
+      employee_id:ME.id, category:cat, amount:Number(amt), expense_date:date, note, receipt_path:path, status:"pending" });
+    if(error) throw error;
+    closeModal(); toast("Claim submitted — finance settles within 7 working days."); render("claims");
+  }catch(e){ btn.disabled=false; btn.textContent="Submit claim"; toast("Couldn't submit: "+(e.message||"error")); }
+}
+
+/* ===================== KYC UPLOADS ===================== */
+const KYC_TYPES = [
+  ["aadhaar","Aadhaar card"], ["pan","PAN card"], ["driving_licence","Driving licence"],
+  ["experience_cert","Experience certificate"], ["relieving_cert","Relieving certificate"]
+];
+async function renderKyc(el){
+  const { data } = await sb.from("hr_kyc_documents").select("*").eq("employee_id",ME.id);
+  const byType={}; (data||[]).forEach(d=>byType[d.doc_type]=d);
+  el.innerHTML = `
+    <h2 class="page display">Uploads &amp; KYC</h2>
+    <div class="page-sub">Upload your identity and previous-employment documents. Stored privately — only you and HR can see them.</div>
+    <div class="card">
+      ${KYC_TYPES.map(([k,label])=>{
+        const doc=byType[k], st=doc?doc.status:"missing";
+        return `<div class="doc-row">
+          <div><div class="doc-name">${label}</div>
+            <div class="doc-meta">${doc&&doc.uploaded_at?("Uploaded "+dMed(doc.uploaded_at)):"Not uploaded yet"}</div></div>
+          <div style="display:flex;align-items:center;gap:10px">
+            ${pill(st)}
+            ${doc&&doc.file_path?`<button class="btn ghost sm" onclick="openDoc('${esc(doc.file_path)}')">View</button>`:""}
+            <label class="btn ghost sm" style="cursor:pointer">${doc?"Replace":"Upload"}
+              <input type="file" accept=".pdf,image/*" style="display:none" onchange="uploadKyc('${k}',this)"/></label>
+          </div></div>`;
+      }).join("")}
+    </div>
+    <div class="page-sub" style="font-size:11.5px">🔒 We never store your full Aadhaar number — only the document image, encrypted at rest, per India's DPDP Act.</div>`;
+}
+async function uploadKyc(docType, input){
+  const f=input.files[0]; if(!f) return;
+  toast("Uploading…");
+  try{
+    const path = await uploadDoc("kyc", f);
+    const { error } = await sb.from("hr_kyc_documents").upsert({
+      employee_id:ME.id, doc_type:docType, file_path:path, status:"under_review", uploaded_at:new Date().toISOString()
+    }, { onConflict:"employee_id,doc_type" });
+    if(error) throw error;
+    toast("Uploaded — HR will verify it shortly."); render("kyc");
+  }catch(e){ toast("Upload failed: "+(e.message||"error")); }
+}
+
+/* ===================== TIMESHEET ===================== */
+function weekDates(){
+  const d=new Date(); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow);
+  return Array.from({length:5},(_,i)=>{ const x=new Date(d); x.setDate(d.getDate()+i); return x.toISOString().slice(0,10); });
+}
+async function renderTimesheet(el){
+  const week=weekDates();
+  const { data } = await sb.from("hr_timesheets").select("*").eq("employee_id",ME.id).in("work_date",week);
+  const byDate={}; (data||[]).forEach(t=>byDate[t.work_date]=t);
+  const today=todayISO(); const todayRow=byDate[today];
+  const DOW=["Mon","Tue","Wed","Thu","Fri"];
+  el.innerHTML = `
+    <h2 class="page display">Timesheet</h2>
+    <div class="page-sub">Log what you worked on. Submit once each working day.</div>
+    <div class="card">
+      <h3>This week</h3><div class="h3sub"></div>
+      <div class="week">${week.map((d,i)=>{
+        const done=!!byDate[d], isToday=d===today;
+        return `<div class="day ${done?"done":""} ${isToday?"today":""}">
+          <div class="dow">${DOW[i]}</div><div class="dt">${new Date(d).getDate()}</div>
+          <div class="st" style="color:${done?"var(--green)":"var(--grey)"}">${done?"Submitted":isToday?"Due":"—"}</div></div>`;
+      }).join("")}</div>
+    </div>
+    <div class="card">
+      <div class="row-head"><h3>Today — ${new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</h3>
+        <span id="ts-stamp" class="stamp ${todayRow?"show":""}">SUBMITTED</span></div>
+      ${todayRow? `<div style="font-size:13.5px;line-height:1.6">${esc(todayRow.entry)}</div>`
+        : `<label class="fld"><span>What did you work on today?</span>
+             <textarea id="ts-entry" rows="4" placeholder="e.g. Site visit at Tribhuvan Raj, finalised living-room BOQ, client call at 4pm."></textarea></label>
+           <div class="grid2"><label class="fld"><span>Hours (optional)</span><input id="ts-hours" type="number" min="0" step="0.5" placeholder="8"/></label><div></div></div>
+           <button class="btn brass" id="ts-submit" onclick="submitTimesheet()">Submit for today</button>`}
+    </div>`;
+}
+async function submitTimesheet(){
+  const entry=$("#ts-entry").value.trim(), hours=$("#ts-hours").value;
+  if(!entry) return toast("Add a line about what you worked on.");
+  const btn=$("#ts-submit"); btn.disabled=true; btn.textContent="Submitting…";
+  const { error } = await sb.from("hr_timesheets").insert({
+    employee_id:ME.id, work_date:todayISO(), entry, hours:hours?Number(hours):null, status:"submitted" });
+  if(error){ btn.disabled=false; btn.textContent="Submit for today"; return toast("Couldn't submit: "+error.message); }
+  $("#ts-stamp").classList.add("show"); toast("Timesheet submitted for today."); setTimeout(()=>render("timesheet"),700);
+}
+
+/* ===================== modal ===================== */
+function openModal(title, body){
+  closeModal();
+  const bg=document.createElement("div"); bg.className="modal-bg"; bg.id="modalBg";
+  bg.innerHTML=`<div class="modal"><h3 class="display">${esc(title)}</h3>${body}</div>`;
+  bg.onclick=e=>{ if(e.target===bg) closeModal(); };
+  document.body.appendChild(bg);
+}
+function closeModal(){ const m=$("#modalBg"); if(m) m.remove(); }
+</script>
+</body>
+</html>
