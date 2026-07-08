@@ -752,7 +752,7 @@ async function renderAdmin(el, tab){
       <button class="btn brass" onclick="emailOffer()">Send email</button></div>`;
   } else if(tab==="employees"){
     const {data:all}=await sb.from("employees").select("*").order("full_name");
-    body=`<table class="t"><thead><tr><th>Name</th><th>Designation</th><th>DOJ</th><th>Access</th><th></th></tr></thead><tbody>
+    body=`<div class="row-head"><h3>Employees</h3><button class="btn brass sm" onclick="addEmp()">+ Add employee</button></div><table class="t"><thead><tr><th>Name</th><th>Designation</th><th>DOJ</th><th>Access</th><th></th></tr></thead><tbody>
       ${(all||[]).map(e=>`<tr><td style="font-weight:600">${esc(e.full_name)}</td><td>${esc(e.designation||"—")}</td>
         <td>${e.date_of_joining?dMed(e.date_of_joining):"—"}</td><td>${esc(e.access_level)}</td>
         <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="viewEmpProfile('${e.id}')">Profile</button> <button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
@@ -1506,6 +1506,45 @@ async function markLogin(){
     if(!row) await sb.from("hr_attendance").insert({employee_id:ME.id,day:d,first_login:new Date().toISOString(),last_seen:new Date().toISOString()});
     else await sb.from("hr_attendance").update({last_seen:new Date().toISOString()}).eq("employee_id",ME.id).eq("day",d);
   }catch(e){}
+}
+
+
+/* ===================== ADMIN — add a new employee ===================== */
+async function addEmp(){
+  const {data:mg}=await sb.from("employees").select("id,full_name").eq("status","active").order("full_name");
+  const opts=(mg||[]).map(m=>`<option value="${m.id}">${esc(m.full_name)}</option>`).join("");
+  const et=["full_time","intern","contract","consultant"].map(t=>`<option value="${t}">${t.replace(/_/g," ")}</option>`).join("");
+  const al=["employee","hr","admin"].map(t=>`<option value="${t}">${t}</option>`).join("");
+  openModal("Add employee", `
+    <div class="h3sub" style="margin-bottom:12px">The work email must be the exact @lintelspace.com Google account they'll sign in with.</div>
+    <div class="grid2">
+      <label class="fld"><span>Full name *</span><input id="ne-full_name"/></label>
+      <label class="fld"><span>Work email *</span><input id="ne-work_email" type="email" placeholder="name@lintelspace.com"/></label>
+      <label class="fld"><span>Employee code</span><input id="ne-emp_code"/></label>
+      <label class="fld"><span>Designation</span><input id="ne-designation"/></label>
+      <label class="fld"><span>Department</span><input id="ne-department"/></label>
+      <label class="fld"><span>Employment type</span><select id="ne-employment_type">${et}</select></label>
+      <label class="fld"><span>Date of joining</span><input id="ne-date_of_joining" type="date"/></label>
+      <label class="fld"><span>Probation (months)</span><input id="ne-probation_months" type="number" value="6"/></label>
+      <label class="fld"><span>Work location</span><input id="ne-work_location" value="Bengaluru"/></label>
+      <label class="fld"><span>Reporting manager</span><select id="ne-manager_id"><option value="">— none —</option>${opts}</select></label>
+      <label class="fld"><span>Access level</span><select id="ne-access_level">${al}</select></label>
+    </div>
+    <button class="btn brass full" onclick="saveNewEmp()">Add employee</button>`);
+}
+async function saveNewEmp(){
+  const v=k=>document.querySelector("#ne-"+k).value.trim();
+  const name=v("full_name"), email=v("work_email").toLowerCase();
+  if(!name) return toast("Enter the employee's full name.");
+  if(!email.endsWith("@lintelspace.com")) return toast("Work email must be an @lintelspace.com address.");
+  const row={ full_name:name, work_email:email, emp_code:v("emp_code")||null, designation:v("designation")||null,
+    department:v("department")||null, employment_type:v("employment_type"),
+    date_of_joining:v("date_of_joining")||null, probation_months:Number(v("probation_months")||6),
+    work_location:v("work_location")||null, manager_id:v("manager_id")||null,
+    access_level:v("access_level"), status:"active" };
+  const {error}=await sb.from("employees").insert(row);
+  if(error){ const m=String(error.message||"").toLowerCase(); if(m.includes("duplicate")||m.includes("unique")) return toast("An employee with that work email already exists."); return toast("Couldn't add: "+error.message); }
+  closeModal(); toast("Employee added — they can now sign in with that email."); renderAdmin(document.querySelector("#view"),"employees");
 }
 
 
