@@ -421,7 +421,6 @@ async function renderLeave(el){
         <tr><td>Sick leave (SL)</td><td style="text-align:right">6 days / year</td></tr>
         <tr><td>Privilege / earned leave (PL)</td><td style="text-align:right">10 days / year</td></tr>
         <tr><td>During probation</td><td style="text-align:right">No paid leave — Loss of Pay only</td></tr>
-        <tr><td>Work from home</td><td style="text-align:right">1 day / week</td></tr>
         <tr><td>Compensatory off</td><td style="text-align:right">1 day per weekly-off / holiday worked</td></tr>
         <tr><td>Advance notice</td><td style="text-align:right">CL: 2 days · EL: 7 days</td></tr>
       </tbody></table>
@@ -465,11 +464,6 @@ async function submitLeave(){
   if(type==="comp_off"){
     const avail=await availableCompOff();
     if(days>avail) return toast(`You have ${avail} comp-off day(s) available.`);
-  }
-  if(type==="wfh"){
-    const wk=weekBounds(from);
-    const {data:ex}=await sb.from("hr_leave_requests").select("id").eq("employee_id",ME.id).eq("leave_type","wfh").in("status",["pending","approved"]).gte("from_date",wk[0]).lte("from_date",wk[1]);
-    if(ex&&ex.length) return toast("Only one work-from-home is allowed per week.");
   }
   const { error } = await sb.from("hr_leave_requests").insert({
     employee_id:ME.id, leave_type:type, from_date:from, to_date:to, days, reason, status:"pending" });
@@ -772,6 +766,7 @@ async function renderProfile(el){
   const confirmed = conf ? (new Date()>=new Date(conf)) : false;
   const empCard=`<div class="card"><h3>Employment</h3><div class="h3sub">Managed by HR</div>
     <div class="grid2">
+      <div class="doc-row"><span class="doc-meta">Name</span><span>${esc(ME.full_name)}</span></div>
       <div class="doc-row"><span class="doc-meta">Employee code</span><span>${esc(ME.emp_code||"—")}</span></div>
       <div class="doc-row"><span class="doc-meta">Designation</span><span>${esc(ME.designation||"—")}</span></div>
       <div class="doc-row"><span class="doc-meta">Department</span><span>${esc(ME.department||"—")}</span></div>
@@ -808,6 +803,13 @@ async function renderProfile(el){
       ${locked?"":`<div style="display:flex;gap:10px">
         <button class="btn ghost" onclick="saveProfile(false)">Save draft</button>
         <button class="btn brass" onclick="saveProfile(true)">Submit for approval</button></div>`}
+    </div>
+    <div class="card">
+      <h3>ID card &amp; business card</h3>
+      <div class="h3sub">Downloadable once your profile is approved.</div>
+      ${status==="approved"
+        ? `<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="downloadIdCard()">Download ID card</button><button class="btn ghost" onclick="downloadBizCard()">Download business card</button></div>`
+        : `<div class="empty">Your ID card and business card unlock once an admin approves your profile.</div>`}
     </div>`;
 }
 async function uploadAvatar(input){
@@ -834,7 +836,7 @@ async function returnProfile(emp){ await sb.from("hr_profiles").update({profile_
 /* ===================== helpers (dates) ===================== */
 function weekBounds(iso){ const d=new Date(iso); const dow=(d.getDay()+6)%7; const mon=new Date(d); mon.setDate(d.getDate()-dow); const sun=new Date(mon); sun.setDate(mon.getDate()+6); return [mon.toISOString().slice(0,10), sun.toISOString().slice(0,10)]; }
 function addMonths(iso,n){ const d=new Date(iso); d.setMonth(d.getMonth()+Number(n||0)); return d.toISOString().slice(0,10); }
-const LEAVE_TYPES=[["casual","Casual leave"],["sick","Sick leave"],["earned","Earned / privilege"],["comp_off","Comp-off"],["wfh","Work from home"],["maternity","Maternity"],["paternity","Paternity"],["bereavement","Bereavement"],["lop","Loss of pay"]];
+const LEAVE_TYPES=[["casual","Casual leave"],["sick","Sick leave"],["earned","Earned / privilege"],["comp_off","Comp-off"],["maternity","Maternity"],["paternity","Paternity"],["bereavement","Bereavement"],["lop","Loss of pay"]];
 
 /* ===================== SALARY (employee) ===================== */
 async function renderSalary(el){
@@ -987,6 +989,7 @@ async function editEmp(e){
   const al=["employee","hr","admin"].map(t=>`<option value="${t}" ${e.access_level===t?"selected":""}>${t}</option>`).join("");
   openModal("Edit — "+esc(e.full_name), `
     <div class="grid2">
+      <label class="fld"><span>Full name</span><input id="em-full_name" value="${esc(e.full_name||"")}"/></label>
       <label class="fld"><span>Employee code</span><input id="em-emp_code" value="${esc(e.emp_code||"")}"/></label>
       <label class="fld"><span>Designation</span><input id="em-designation" value="${esc(e.designation||"")}"/></label>
       <label class="fld"><span>Department</span><input id="em-department" value="${esc(e.department||"")}"/></label>
@@ -1004,6 +1007,7 @@ async function saveEmp(id){
   const row={ emp_code:v("emp_code")||null, designation:v("designation")||null, department:v("department")||null,
     employment_type:v("employment_type"), date_of_joining:v("date_of_joining")||null, probation_months:Number(v("probation_months")||6),
     work_location:v("work_location")||null, manager_id:v("manager_id")||null, access_level:v("access_level"), updated_at:new Date().toISOString() };
+  const fn=v("full_name"); if(fn) row.full_name=fn;
   const {error}=await sb.from("employees").update(row).eq("id",id);
   if(error) return toast("Save failed: "+error.message);
   closeModal(); toast("Employee updated."); renderAdmin(document.querySelector("#view"),"employees");
@@ -1240,6 +1244,95 @@ function previewOffer(){
   const d=readOffer(); if(!d.name) return toast("Enter the candidate's name.");
   const w=window.open("","_blank");
   w.document.write(`<html><head><title>Offer — ${esc(d.name)}</title><style>${OFFER_CSS}</style></head><body>${offerLetterHTML(d)}<button onclick="window.print()" class="noprint" style="margin-top:24px;padding:10px 18px">Print / Save as PDF</button></body></html>`);
+  w.document.close();
+}
+
+
+/* ===================== ID CARD + BUSINESS CARD ===================== */
+const LSA_WEBSITE="lintelspace.com";
+const LSA_EMAIL="contact@lintelspace.com";
+const LSA_PHONE="+91 99165 58777";
+const LSA_ADDR_CARD="Ramky House, Ground Floor, Kalyan Nagar, Bengaluru – 560043, Karnataka, India";
+
+const IDCARD_CSS=`*{box-sizing:border-box;margin:0;padding:0} body{background:#eceae3;font-family:'Inter',Arial,sans-serif;padding:30px;display:flex;flex-direction:column;align-items:center;gap:20px}
+.cards{display:flex;gap:26px;flex-wrap:wrap;justify-content:center}
+.idc{width:54mm;height:86mm;border-radius:11px;overflow:hidden;box-shadow:0 10px 26px rgba(0,0,0,.2);position:relative}
+.idc.front{background:linear-gradient(160deg,#0D0D27 0%,#1C1C3A 55%,#0D0D27 100%);color:#fff;display:flex;flex-direction:column;align-items:center;padding:16px 12px}
+.idc-top{display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:8px}
+.idc-top img{width:32px;height:32px;border-radius:50%}
+.idc-co{font-size:8px;letter-spacing:1.6px;color:#DFB05E;font-weight:700;text-align:center}
+.idc-photo{width:38mm;height:38mm;border-radius:9px;object-fit:cover;border:2px solid #DFB05E;background:#2a2a44;margin:8px 0 6px}
+.idc-name{font-family:'Fraunces',Georgia,serif;font-size:17px;font-weight:600;margin-top:4px;text-align:center;line-height:1.15}
+.idc-desig{font-size:9.5px;color:#c9c6dd;margin-top:3px;text-align:center}
+.idc-id{margin-top:auto;font-size:8px;letter-spacing:1.2px;color:#DFB05E;border:1px solid #DFB05E;border-radius:20px;padding:4px 14px}
+.idc.back{background:#F4EFE6;color:#0D0D27;padding:18px 14px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.idc-mono{width:38px;height:38px;border-radius:50%;margin-bottom:8px}
+.idc-back-co{font-family:'Fraunces',Georgia,serif;font-size:13px;font-weight:600}
+.idc-addr{font-size:8.5px;color:#565571;margin:8px 2px;line-height:1.6}
+.idc-contact{font-size:8.5px;line-height:1.9;color:#0D0D27}
+.idc-return{margin-top:auto;font-size:7.5px;color:#8C6A24;border-top:1px dashed #CFC4AD;padding-top:8px;line-height:1.4}
+@media print{body{background:#fff;padding:0;gap:0} .noprint{display:none}}`;
+
+const BIZ_CSS=`*{box-sizing:border-box;margin:0;padding:0} body{background:#eceae3;font-family:'Inter',Arial,sans-serif;padding:40px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.biz{width:89mm;height:51mm;border-radius:8px;overflow:hidden;box-shadow:0 10px 26px rgba(0,0,0,.2);display:flex;background:#fff}
+.biz-left{width:40%;background:linear-gradient(160deg,#0D0D27,#1C1C3A);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px;text-align:center}
+.biz-left img{width:42px;height:42px;border-radius:50%;margin-bottom:8px}
+.biz-co{font-size:8px;letter-spacing:1.3px;color:#DFB05E;font-weight:700;line-height:1.45}
+.biz-tag{font-size:5.5px;color:#c9c6dd;margin-top:5px;letter-spacing:.6px}
+.biz-right{flex:1;padding:16px 18px;display:flex;flex-direction:column;justify-content:center}
+.biz-name{font-family:'Fraunces',Georgia,serif;font-size:17px;font-weight:600;color:#0D0D27}
+.biz-desig{font-size:10px;color:#8C6A24;margin-top:2px;font-weight:600}
+.biz-contact{font-size:9px;color:#565571;line-height:2;margin-top:12px}
+@media print{body{background:#fff;padding:0} .noprint{display:none}}`;
+
+async function cardGate(){
+  const {data:p}=await sb.from("hr_profiles").select("avatar_path,profile_status").eq("employee_id",ME.id).maybeSingle();
+  if(!p||p.profile_status!=="approved"){ toast("Your profile must be approved first."); return null; }
+  let av=""; if(p.avatar_path){ try{ av=await signedUrl(p.avatar_path);}catch(e){} }
+  return {av};
+}
+async function downloadIdCard(){
+  const g=await cardGate(); if(!g) return;
+  const w=window.open("","_blank");
+  w.document.write(`<html><head><title>ID Card — ${esc(ME.full_name)}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>${IDCARD_CSS}</style></head><body>
+    <div class="cards">
+      <div class="idc front">
+        <div class="idc-top"><img src="${LSA_SEAL}"/><div class="idc-co">LINTEL SPACE ATELIER</div></div>
+        <img class="idc-photo" src="${g.av}"/>
+        <div class="idc-name">${esc(ME.full_name)}</div>
+        <div class="idc-desig">${esc(ME.designation||"")}</div>
+        <div class="idc-id">${esc(ME.emp_code||"LSA")}</div>
+      </div>
+      <div class="idc back">
+        <img class="idc-mono" src="${LSA_SEAL}"/>
+        <div class="idc-back-co">Lintel Space Atelier</div>
+        <div class="idc-addr">${esc(LSA_ADDR_CARD)}</div>
+        <div class="idc-contact">${LSA_WEBSITE}<br>${LSA_EMAIL}<br>${LSA_PHONE}</div>
+        <div class="idc-return">If found, please return to the above address.</div>
+      </div>
+    </div>
+    <button onclick="window.print()" class="noprint" style="padding:10px 20px">Print / Save as PDF</button>
+  </body></html>`);
+  w.document.close();
+}
+async function downloadBizCard(){
+  const g=await cardGate(); if(!g) return;
+  const w=window.open("","_blank");
+  w.document.write(`<html><head><title>Business Card — ${esc(ME.full_name)}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>${BIZ_CSS}</style></head><body>
+    <div class="biz">
+      <div class="biz-left"><img src="${LSA_SEAL}"/><div class="biz-co">LINTEL SPACE ATELIER</div><div class="biz-tag">WHERE LUXURY MEETS FUNCTIONALITY</div></div>
+      <div class="biz-right">
+        <div class="biz-name">${esc(ME.full_name)}</div>
+        <div class="biz-desig">${esc(ME.designation||"")}</div>
+        <div class="biz-contact">${LSA_PHONE}<br>${LSA_EMAIL}<br>${LSA_WEBSITE}</div>
+      </div>
+    </div>
+    <button onclick="window.print()" class="noprint" style="padding:10px 20px">Print / Save as PDF</button>
+  </body></html>`);
   w.document.close();
 }
 
