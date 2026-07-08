@@ -198,7 +198,7 @@ function pill(status){
   return `<span class="pill ${cls}">${esc(label)}</span>`;
 }
 
-let sb=null, ME=null, HOLIDAYS=[];
+let sb=null, ME=null, HOLIDAYS=[], OPENING={};
 const cfgOk = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length>20;
 
 /* ===================== storage ===================== */
@@ -273,6 +273,7 @@ async function enter(session){
     }
     ME = emp;
     await loadHolidays();
+    try{ const {data:_op}=await sb.from("hr_leave_opening").select("leave_type,taken").eq("employee_id",ME.id).eq("year",new Date().getFullYear()); OPENING={}; (_op||[]).forEach(o=>OPENING[o.leave_type]=Number(o.taken)); }catch(e){ OPENING={}; }
     $("#login").style.display="none";
     $("#app").style.display="block";
     $("#whoName").textContent = ME.full_name;
@@ -321,6 +322,7 @@ async function renderOverview(el){
   ]);
   const _y=new Date().getFullYear(), _um={casual:0,sick:0,earned:0};
   (appr.data||[]).filter(r=>(r.from_date||"").slice(0,4)==String(_y)).forEach(r=>{ if(_um[r.leave_type]!==undefined) _um[r.leave_type]+=Number(r.days||0); });
+  ["casual","sick","earned"].forEach(t=>_um[t]+=openingTaken(t));
   const totalLeave = ["casual","sick","earned"].reduce((a,t)=>a+Math.max(0,accrued(t)-(_um[t]||0)),0);
   const pendingClaims = (claims.data||[]).filter(c=>c.status==="pending").length;
   const submittedToday = (ts.data||[]).length>0;
@@ -398,6 +400,7 @@ async function renderLeave(el){
   const prob=onProbation(), conf=confirmationDate(), y=new Date().getFullYear();
   const um={casual:0,sick:0,earned:0};
   (reqs.data||[]).filter(r=>r.status==="approved" && (r.from_date||"").slice(0,4)==String(y)).forEach(r=>{ if(um[r.leave_type]!==undefined) um[r.leave_type]+=Number(r.days||0); });
+  ["casual","sick","earned"].forEach(t=>um[t]+=openingTaken(t));
   const co=await availableCompOff();
   const card=(t,label)=>{ const acc=accrued(t), used=um[t]||0, avail=Math.max(0,acc-used);
     return `<div class="stat" style="border-left-color:var(--ink)"><div class="v">${avail}</div><div class="l">${label}</div><div class="l" style="text-transform:none;letter-spacing:0">${acc} accrued · ${used} used</div></div>`; };
@@ -654,8 +657,8 @@ async function renderHolidays(el){
 /* ===================== ADMIN CONSOLE (admin only) ===================== */
 async function renderAdmin(el, tab){
   tab = tab || "leave";
-  const emps = await sb.from("employees").select("id,full_name");
-  const NAME={}; (emps.data||[]).forEach(e=>NAME[e.id]=e.full_name);
+  const emps = await sb.from("employees").select("id,full_name,date_of_joining,probation_months,status");
+  const NAME={}, EMP={}; (emps.data||[]).forEach(e=>{NAME[e.id]=e.full_name; EMP[e.id]=e;});
   const tb=(id,l)=>`<button class="btn ${tab===id?"brass":"ghost"} sm" onclick="renderAdmin(document.querySelector('#view'),'${id}')">${l}</button>`;
   let body="";
   if(tab==="leave"){
@@ -666,6 +669,7 @@ async function renderAdmin(el, tab){
         <td style="white-space:nowrap"><button class="btn sm" onclick="approveLeave('${l.id}','${l.employee_id}','${l.leave_type}',${l.days})">Approve</button>
         <button class="btn ghost sm" onclick="rejectLeave('${l.id}')">Reject</button></td></tr>`).join("")}</tbody></table>`
       :`<div class="empty">No pending leave requests.</div>`;
+    body += await leaveRegisterHTML(EMP, NAME);
   } else if(tab==="compoff"){
     const {data}=await sb.from("hr_comp_off").select("*").eq("status","pending").order("created_at");
     body=(data&&data.length)?`<table class="t"><thead><tr><th>Employee</th><th>Worked on</th><th>Reason</th><th></th></tr></thead><tbody>
@@ -1035,21 +1039,24 @@ function labelFor(t){ const m=LEAVE_TYPES.find(x=>x[0]===t); return m?m[1]:t; }
 function leaveSpan(from,to){ return Math.round((new Date(to)-new Date(from))/86400000)+1; }  // calendar-inclusive (sandwich rule)
 function confirmationDate(){ return ME.date_of_joining ? addMonths(ME.date_of_joining, ME.probation_months==null?6:ME.probation_months) : null; }
 function onProbation(){ const c=confirmationDate(); return c ? (new Date() < new Date(c)) : false; }
-function accrued(type){
+function accruedFor(doj, prob, type){
   const annual=LEAVE_QUOTA[type]; if(annual===undefined) return 0;
-  const c=confirmationDate(); if(!c) return annual;            // no DOJ on record → show full as fallback
-  const now=new Date(), conf=new Date(c);
-  if(now<conf) return 0;                                       // still on probation
+  if(!doj) return annual;
+  const conf=addMonths(doj, prob==null?6:prob);
+  const now=new Date(), c=new Date(conf);
+  if(now<c) return 0;
   const yStart=new Date(now.getFullYear(),0,1);
-  const start = conf>yStart ? conf : yStart;                   // accrue from later of confirmation or Jan 1
+  const start = c>yStart ? c : yStart;
   let months=(now.getFullYear()-start.getFullYear())*12 + (now.getMonth()-start.getMonth()) + 1;
   months=Math.max(0,Math.min(12,months));
-  return Math.round(annual/12*months*2)/2;                     // round to nearest 0.5
+  return Math.round(annual/12*months*2)/2;
 }
+function accrued(type){ return accruedFor(ME.date_of_joining, ME.probation_months, type); }
+function openingTaken(type){ return Number(OPENING[type]||0); }
 async function usedThisYear(type){
   const y=new Date().getFullYear();
   const {data}=await sb.from("hr_leave_requests").select("days").eq("employee_id",ME.id).eq("leave_type",type).eq("status","approved").gte("from_date",y+"-01-01").lte("from_date",y+"-12-31");
-  return (data||[]).reduce((a,r)=>a+Number(r.days||0),0);
+  return (data||[]).reduce((a,r)=>a+Number(r.days||0),0) + openingTaken(type);
 }
 
 
@@ -1298,6 +1305,13 @@ const BIZ_CSS=`*{box-sizing:border-box;margin:0;padding:0} body{background:#ecea
 .biz-name{font-family:'Fraunces',Georgia,serif;font-size:17px;font-weight:600;color:#0D0D27}
 .biz-desig{font-size:10px;color:#8C6A24;margin-top:2px;font-weight:600}
 .biz-contact{font-size:9px;color:#565571;line-height:2;margin-top:12px}
+.cards{display:flex;gap:24px;flex-wrap:wrap;justify-content:center}
+.biz.back{background:linear-gradient(160deg,#0D0D27,#1C1C3A);color:#fff;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:14px}
+.biz.back img{width:40px;height:40px;border-radius:50%;margin-bottom:8px}
+.biz-b-tag{font-size:11px;font-weight:700;color:#DFB05E;letter-spacing:1px}
+.biz-b-desc{font-size:8px;color:#c9c6dd;margin:6px 12px;line-height:1.6}
+.biz-b-addr{font-size:7.5px;color:#9AA5BC;margin-top:8px;line-height:1.45}
+.biz-b-web{font-size:8.5px;color:#DFB05E;margin-top:7px;letter-spacing:.5px}
 @media print{body{background:#fff;padding:0} .noprint{display:none}}`;
 
 async function cardGate(){
@@ -1338,12 +1352,21 @@ async function downloadBizCard(){
   w.document.write(`<html><head><title>Business Card — ${esc(ME.full_name)}</title>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>${BIZ_CSS}</style></head><body>
-    <div class="biz">
-      <div class="biz-left"><img src="${LSA_SEAL}"/><div class="biz-co">LINTEL SPACE ATELIER</div><div class="biz-tag">WHERE LUXURY MEETS FUNCTIONALITY</div></div>
-      <div class="biz-right">
-        <div class="biz-name">${esc(ME.full_name)}</div>
-        <div class="biz-desig">${esc(ME.designation||"")}</div>
-        <div class="biz-contact">${esc(g.phone||"")}<br>${esc(ME.work_email)}<br>${LSA_WEBSITE}</div>
+    <div class="cards">
+      <div class="biz">
+        <div class="biz-left"><img src="${LSA_SEAL}"/><div class="biz-co">LINTEL SPACE ATELIER</div><div class="biz-tag">WHERE LUXURY MEETS FUNCTIONALITY</div></div>
+        <div class="biz-right">
+          <div class="biz-name">${esc(ME.full_name)}</div>
+          <div class="biz-desig">${esc(ME.designation||"")}</div>
+          <div class="biz-contact">${esc(g.phone||"")}<br>${esc(ME.work_email)}<br>${LSA_WEBSITE}</div>
+        </div>
+      </div>
+      <div class="biz back">
+        <img src="${LSA_SEAL}"/>
+        <div class="biz-b-tag">INTERIOR DESIGN STUDIO</div>
+        <div class="biz-b-desc">Bespoke interiors for homes &amp; workspaces — design, turnkey execution &amp; custom furniture.</div>
+        <div class="biz-b-addr">${esc(LSA_ADDR_CARD)}</div>
+        <div class="biz-b-web">${LSA_WEBSITE}</div>
       </div>
     </div>
     <button onclick="window.print()" class="noprint" style="padding:10px 20px">Print / Save as PDF</button>
@@ -1370,6 +1393,56 @@ async function generateAllSlips(){
 }
 async function publishSlip(id){ await sb.from("hr_salary_slips").update({status:"published"}).eq("id",id); toast("Slip published — the employee can now see it."); renderAdmin(document.querySelector("#view"),"payroll"); }
 async function deleteSlip(id){ await sb.from("hr_salary_slips").delete().eq("id",id); toast("Draft deleted."); renderAdmin(document.querySelector("#view"),"payroll"); }
+
+
+/* ===================== ADMIN — leave register & adjustments ===================== */
+async function leaveRegisterHTML(EMP, NAME){
+  const y=new Date().getFullYear();
+  const [reqR, openR] = await Promise.all([
+    sb.from("hr_leave_requests").select("employee_id,leave_type,days,status,from_date"),
+    sb.from("hr_leave_opening").select("*").eq("year",y)
+  ]);
+  const used={}, pend={}, open={};
+  (reqR.data||[]).forEach(r=>{
+    if(r.status==="approved" && (r.from_date||"").slice(0,4)==String(y)){ (used[r.employee_id]=used[r.employee_id]||{})[r.leave_type]=((used[r.employee_id]||{})[r.leave_type]||0)+Number(r.days||0); }
+    if(r.status==="pending"){ pend[r.employee_id]=(pend[r.employee_id]||0)+1; }
+  });
+  (openR.data||[]).forEach(o=>{ (open[o.employee_id]=open[o.employee_id]||{})[o.leave_type]=Number(o.taken); });
+  const ids=Object.keys(EMP).filter(id=>EMP[id].status!=="exited").sort((a,b)=>(NAME[a]||"").localeCompare(NAME[b]||""));
+  const cell=(id,t)=>{ const e=EMP[id]; const acc=accruedFor(e.date_of_joining,e.probation_months,t); const tk=((used[id]||{})[t]||0)+((open[id]||{})[t]||0); return `${tk} / ${Math.max(0,acc-tk)}`; };
+  return `<div class="card" style="margin-top:16px">
+    <div class="row-head"><h3>Leave register (${y})</h3></div>
+    <div class="h3sub" style="margin-bottom:10px">Each cell shows <b>taken / available</b>. Use Edit to record leave already taken this year.</div>
+    <div style="overflow-x:auto"><table class="t"><thead><tr><th>Employee</th><th>Casual</th><th>Sick</th><th>Privilege</th><th>Pending</th><th></th></tr></thead><tbody>
+      ${ids.length? ids.map(id=>`<tr>
+        <td style="font-weight:600">${esc(NAME[id]||"—")}</td>
+        <td>${cell(id,"casual")}</td><td>${cell(id,"sick")}</td><td>${cell(id,"earned")}</td>
+        <td>${pend[id]?`<span class="pill warn">${pend[id]}</span>`:"0"}</td>
+        <td style="text-align:right"><button class="btn ghost sm" onclick="editLeave('${id}')">Edit</button></td>
+      </tr>`).join("") : `<tr><td colspan="6" class="empty">No employees.</td></tr>`}
+    </tbody></table></div></div>`;
+}
+async function editLeave(empId){
+  const {data:e}=await sb.from("employees").select("full_name").eq("id",empId).maybeSingle();
+  const y=new Date().getFullYear();
+  const {data:op}=await sb.from("hr_leave_opening").select("*").eq("employee_id",empId).eq("year",y);
+  const m={}; (op||[]).forEach(o=>m[o.leave_type]=o.taken);
+  openModal("Leave taken this year — "+esc(e?.full_name||""), `
+    <div class="h3sub" style="margin-bottom:12px">Days already taken THIS YEAR (before the system, or manual adjustment). These add to leave recorded in the app.</div>
+    <div class="grid3">
+      <label class="fld"><span>Casual taken</span><input id="lo-casual" type="number" step="0.5" value="${m.casual??0}"/></label>
+      <label class="fld"><span>Sick taken</span><input id="lo-sick" type="number" step="0.5" value="${m.sick??0}"/></label>
+      <label class="fld"><span>Privilege taken</span><input id="lo-earned" type="number" step="0.5" value="${m.earned??0}"/></label>
+    </div>
+    <button class="btn brass full" onclick="saveLeaveOpening('${empId}')">Save</button>`);
+}
+async function saveLeaveOpening(empId){
+  const y=new Date().getFullYear();
+  const rows=["casual","sick","earned"].map(t=>({employee_id:empId,leave_type:t,year:y,taken:Number(document.querySelector("#lo-"+t).value||0),updated_at:new Date().toISOString()}));
+  const {error}=await sb.from("hr_leave_opening").upsert(rows,{onConflict:"employee_id,leave_type,year"});
+  if(error) return toast("Save failed: "+error.message);
+  closeModal(); toast("Leave register updated."); renderAdmin(document.querySelector("#view"),"leave");
+}
 
 
 setLogos();
