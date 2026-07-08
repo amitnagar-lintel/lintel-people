@@ -1128,7 +1128,8 @@ async function viewEmpProfile(empId){
       <label class="fld"><span>Emergency contact phone</span><input id="ep-emergency_contact_phone" value="${v('emergency_contact_phone')}"/></label>
     </div>
     <label class="fld"><span>Address</span><textarea id="ep-address" rows="3">${v('address')}</textarea></label>
-    <button class="btn brass full" onclick="saveEmpProfile('${empId}','${st}')">Save profile</button>`);
+    <button class="btn brass full" onclick="saveEmpProfile('${empId}','${st}')">Save profile</button>
+    ${(st==="submitted"||st==="approved")?`<button class="btn ghost full" style="margin-top:8px" onclick="unlockProfile('${empId}')">Unlock for employee to edit</button>`:""}`);
 }
 async function saveEmpProfile(empId, st){
   const g=id=>document.querySelector("#ep-"+id).value.trim();
@@ -1545,6 +1546,14 @@ async function saveNewEmp(){
   const {error}=await sb.from("employees").insert(row);
   if(error){ const m=String(error.message||"").toLowerCase(); if(m.includes("duplicate")||m.includes("unique")) return toast("An employee with that work email already exists."); return toast("Couldn't add: "+error.message); }
   closeModal(); toast("Employee added — they can now sign in with that email."); renderAdmin(document.querySelector("#view"),"employees");
+}
+
+
+async function unlockProfile(empId){
+  const {error}=await sb.from("hr_profiles").update({profile_status:"draft"}).eq("employee_id",empId);
+  if(error) return toast("Couldn't unlock: "+error.message);
+  closeModal(); toast("Profile unlocked — the employee can now edit every field, including their photo.");
+  renderAdmin(document.querySelector("#view"),"employees");
 }
 
 
