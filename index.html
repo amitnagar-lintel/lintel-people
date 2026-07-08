@@ -252,7 +252,7 @@ else {
       if(error){ gBtn.disabled=false; showErr(error.message); }
     }catch(e){ gBtn.disabled=false; showErr("Google sign-in failed: "+(e.message||"unknown")); }
   };
-  $("#logoutBtn").onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
+  $("#logoutBtn").onclick=async()=>{ try{ if(ME) await sb.from("hr_attendance").update({last_logout:new Date().toISOString()}).eq("employee_id",ME.id).eq("day",todayISO()); }catch(e){} await sb.auth.signOut(); location.reload(); };
   sb.auth.onAuthStateChange((_e,session)=> session ? enter(session) : null);
   sb.auth.getSession().then(({data})=> data.session && enter(data.session)).catch(()=>{});
 }
@@ -272,6 +272,7 @@ async function enter(session){
       return location.reload();
     }
     ME = emp;
+    markLogin();
     await loadHolidays();
     try{ const {data:_op}=await sb.from("hr_leave_opening").select("leave_type,taken").eq("employee_id",ME.id).eq("year",new Date().getFullYear()); OPENING={}; (_op||[]).forEach(o=>OPENING[o.leave_type]=Number(o.taken)); }catch(e){ OPENING={}; }
     $("#login").style.display="none";
@@ -590,12 +591,14 @@ async function renderTimesheet(el){
              <label class="fld"><span>Logout time</span><input id="ts-out" type="time"/></label></div>
            <label class="fld"><span>What did you work on today?</span>
              <textarea id="ts-entry" rows="4" placeholder="e.g. Site visit at Tribhuvan Raj, finalised living-room BOQ, client call at 4pm."></textarea></label>
+           <div class="h3sub" style="margin:2px 0 10px">Timesheet can be submitted after 7:00 PM.</div>
            <button class="btn brass" id="ts-submit" onclick="submitTimesheet()">Submit for today</button>`}
     </div>`;
 }
 async function submitTimesheet(){
   const entry=$("#ts-entry").value.trim(), lin=$("#ts-in").value, lout=$("#ts-out").value;
   if(!entry) return toast("Add a line about what you worked on.");
+  if(new Date().getHours()<19) return toast("Timesheet can be submitted only after 7:00 PM.");
   let hours=null;
   if(lin&&lout){ const [h1,m1]=lin.split(":").map(Number),[h2,m2]=lout.split(":").map(Number); let mins=(h2*60+m2)-(h1*60+m1); if(mins<0)mins+=1440; hours=Math.round(mins/6)/10; }
   const btn=$("#ts-submit"); btn.disabled=true; btn.textContent="Submitting…";
@@ -754,12 +757,23 @@ async function renderAdmin(el, tab){
         <td>${e.date_of_joining?dMed(e.date_of_joining):"—"}</td><td>${esc(e.access_level)}</td>
         <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="viewEmpProfile('${e.id}')">Profile</button> <button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
       </tbody></table>`;
+  } else if(tab==="attendance"){
+    const day = window.__attDay || todayISO();
+    const {data}=await sb.from("hr_attendance").select("*").eq("day",day);
+    const map={}; (data||[]).forEach(a=>map[a.employee_id]=a);
+    const fmtT=t=>t?new Date(t).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—";
+    const ids=Object.keys(EMP).filter(id=>EMP[id].status!=="exited").sort((a,b)=>(NAME[a]||"").localeCompare(NAME[b]||""));
+    body=`<label class="fld" style="max-width:220px"><span>Date</span><input id="att-day" type="date" value="${day}" onchange="window.__attDay=this.value;renderAdmin(document.querySelector('#view'),'attendance')"/></label>
+      <div style="overflow-x:auto"><table class="t"><thead><tr><th>Employee</th><th>First login</th><th>Last logout</th><th>Last seen</th></tr></thead><tbody>
+      ${ids.map(id=>{const a=map[id];return `<tr><td style="font-weight:600">${esc(NAME[id]||"—")}</td><td>${a?fmtT(a.first_login):"—"}</td><td>${a?fmtT(a.last_logout):"—"}</td><td>${a?fmtT(a.last_seen):"—"}</td></tr>`;}).join("")}
+      </tbody></table></div>
+      <div class="h3sub" style="margin-top:8px">First login and last-seen are captured automatically. Last logout is recorded when the employee signs out.</div>`;
   }
   el.innerHTML=`
     <h2 class="page display">Admin</h2>
     <div class="page-sub">Approvals and verification — visible to admins only.</div>
     <div class="card">
-      <div style="display:flex;gap:8px;margin-bottom:16px">${tb("leave","Leave")}${tb("compoff","Comp-off")}${tb("profiles","Profiles")}${tb("kyc","KYC")}${tb("claims","Claims")}${tb("salary","Salary")}${tb("payroll","Payroll")}${tb("offers","Offer letters")}${tb("employees","Employees")}</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">${tb("leave","Leave")}${tb("compoff","Comp-off")}${tb("profiles","Profiles")}${tb("kyc","KYC")}${tb("claims","Claims")}${tb("salary","Salary")}${tb("payroll","Payroll")}${tb("offers","Offer letters")}${tb("employees","Employees")}${tb("attendance","Attendance")}</div>
       ${body}
     </div>`;
 }
@@ -831,10 +845,13 @@ async function renderProfile(el){
         : `<div class="empty">Your ID card and business card unlock once an admin approves your profile.</div>`}
     </div>`;
 }
-async function uploadAvatar(input){
-  const f=input.files[0]; if(!f) return; toast("Uploading photo…");
-  try{ const path=await uploadDoc("avatar",f); __avatarPath=path; document.querySelector("#pf-av").src=await signedUrl(path); toast("Photo added — remember to save."); }
-  catch(e){ toast("Upload failed: "+(e.message||"error")); }
+function uploadAvatar(input){
+  const f=input.files[0]; if(!f) return;
+  openCropper(f, async (blob)=>{
+    toast("Uploading photo…");
+    try{ const file=new File([blob],"avatar.jpg",{type:"image/jpeg"}); const path=await uploadDoc("avatar",file); __avatarPath=path; document.querySelector("#pf-av").src=await signedUrl(path); toast("Photo added — remember to save."); }
+    catch(e){ toast("Upload failed: "+(e.message||"error")); }
+  });
 }
 async function saveProfile(submit){
   const g=id=>document.querySelector("#pf-"+id).value.trim();
@@ -1442,6 +1459,53 @@ async function saveLeaveOpening(empId){
   const {error}=await sb.from("hr_leave_opening").upsert(rows,{onConflict:"employee_id,leave_type,year"});
   if(error) return toast("Save failed: "+error.message);
   closeModal(); toast("Leave register updated."); renderAdmin(document.querySelector("#view"),"leave");
+}
+
+
+/* ===================== PHOTO CROPPER ===================== */
+function openCropper(file, onDone){
+  const url=URL.createObjectURL(file), img=new Image();
+  img.onload=()=>{
+    openModal("Adjust your photo", `<div style="text-align:center">
+      <div class="h3sub" style="margin-bottom:8px">Drag to reposition · slider to zoom</div>
+      <canvas id="cropCanvas" width="260" height="260" style="border-radius:50%;touch-action:none;cursor:grab;background:#e9e4d8;border:3px solid var(--brass);max-width:100%"></canvas>
+      <input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" style="width:260px;max-width:100%;display:block;margin:14px auto"/>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn brass" id="cropSave">Use photo</button>
+      </div></div>`);
+    const V=260, cv=document.querySelector("#cropCanvas"), ctx=cv.getContext("2d");
+    const base=Math.max(V/img.width, V/img.height);
+    let zoom=1, scale=base, tx=(V-img.width*base)/2, ty=(V-img.height*base)/2;
+    function clamp(){ const w=img.width*scale, h=img.height*scale; tx=Math.min(0,Math.max(V-w,tx)); ty=Math.min(0,Math.max(V-h,ty)); }
+    function draw(){ ctx.clearRect(0,0,V,V); ctx.save(); ctx.translate(tx,ty); ctx.scale(scale,scale); ctx.drawImage(img,0,0); ctx.restore(); }
+    draw();
+    function pt(e){ const t=e.touches&&e.touches[0]?e.touches[0]:e; const r=cv.getBoundingClientRect(); return {x:(t.clientX-r.left)*(cv.width/r.width), y:(t.clientY-r.top)*(cv.height/r.height)}; }
+    let drag=false,sx=0,sy=0;
+    function down(e){ drag=true; const p=pt(e); sx=p.x-tx; sy=p.y-ty; if(e.cancelable)e.preventDefault(); }
+    function move(e){ if(!drag)return; const p=pt(e); tx=p.x-sx; ty=p.y-sy; clamp(); draw(); if(e.cancelable)e.preventDefault(); }
+    function up(){ drag=false; }
+    cv.addEventListener("mousedown",down); cv.addEventListener("mousemove",move); cv.addEventListener("mouseup",up); cv.addEventListener("mouseleave",up);
+    cv.addEventListener("touchstart",down,{passive:false}); cv.addEventListener("touchmove",move,{passive:false}); cv.addEventListener("touchend",up);
+    document.querySelector("#cropZoom").oninput=e=>{ const cx=V/2,cy=V/2,old=scale; zoom=Number(e.target.value); scale=base*zoom; tx=cx-(cx-tx)*(scale/old); ty=cy-(cy-ty)*(scale/old); clamp(); draw(); };
+    document.querySelector("#cropSave").onclick=()=>{
+      const out=document.createElement("canvas"); out.width=512; out.height=512; const o=out.getContext("2d"); const f=512/V;
+      o.save(); o.translate(tx*f,ty*f); o.scale(scale*f,scale*f); o.drawImage(img,0,0); o.restore();
+      out.toBlob(b=>{ URL.revokeObjectURL(url); closeModal(); if(b) onDone(b); }, "image/jpeg", 0.9);
+    };
+  };
+  img.onerror=()=>{ toast("Couldn't read that image."); URL.revokeObjectURL(url); };
+  img.src=url;
+}
+
+/* ===================== ATTENDANCE ===================== */
+async function markLogin(){
+  try{
+    const d=todayISO();
+    const {data:row}=await sb.from("hr_attendance").select("employee_id").eq("employee_id",ME.id).eq("day",d).maybeSingle();
+    if(!row) await sb.from("hr_attendance").insert({employee_id:ME.id,day:d,first_login:new Date().toISOString(),last_seen:new Date().toISOString()});
+    else await sb.from("hr_attendance").update({last_seen:new Date().toISOString()}).eq("employee_id",ME.id).eq("day",d);
+  }catch(e){}
 }
 
 
