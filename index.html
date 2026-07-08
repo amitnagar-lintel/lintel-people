@@ -719,11 +719,17 @@ async function renderAdmin(el, tab){
       <label class="fld"><span>Phone</span><input id="of-phone"/></label>
       <label class="fld"><span>Designation</span><input id="of-desig"/></label>
       <label class="fld"><span>Department</span><input id="of-dept"/></label>
-      <label class="fld"><span>Annual CTC (₹)</span><input id="of-ctc" type="number"/></label>
+      <label class="fld"><span>Reporting to</span><input id="of-report" value="the Director – Operations"/></label>
+      <label class="fld"><span>Net take-home / month (₹)</span><input id="of-net" type="number"/></label>
+      <label class="fld"><span>Annual CTC (₹) — for breakup</span><input id="of-ctc" type="number"/></label>
       <label class="fld"><span>Date of joining</span><input id="of-doj" type="date"/></label>
+      <label class="fld"><span>Offer valid till</span><input id="of-valid" type="date"/></label>
       <label class="fld"><span>Work location</span><input id="of-loc" value="Bengaluru"/></label>
-      <label class="fld"><span>Probation (months)</span><input id="of-prob" type="number" value="6"/></label>
+      <label class="fld"><span>Working days</span><input id="of-days" value="Monday to Saturday"/></label>
+      <label class="fld"><span>Probation (months)</span><input id="of-prob" type="number" value="3"/></label>
+      <label class="fld"><span>Notice period (months)</span><input id="of-notice" type="number" value="1"/></label>
     </div>
+    <label class="fld"><span>Candidate address</span><textarea id="of-addr" rows="2" placeholder="Street, City, State, PIN"></textarea></label>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn ghost" onclick="previewOffer()">Preview / download</button>
       <button class="btn" onclick="saveOffer()">Save draft</button>
@@ -733,7 +739,7 @@ async function renderAdmin(el, tab){
     body=`<table class="t"><thead><tr><th>Name</th><th>Designation</th><th>DOJ</th><th>Access</th><th></th></tr></thead><tbody>
       ${(all||[]).map(e=>`<tr><td style="font-weight:600">${esc(e.full_name)}</td><td>${esc(e.designation||"—")}</td>
         <td>${e.date_of_joining?dMed(e.date_of_joining):"—"}</td><td>${esc(e.access_level)}</td>
-        <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="viewEmpProfile('${e.id}',${JSON.stringify(e.full_name).replace(/'/g,"&#39;")})">Profile</button> <button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
+        <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="viewEmpProfile('${e.id}')">Profile</button> <button class="btn ghost sm" onclick='editEmp(${JSON.stringify(e).replace(/'/g,"&#39;")})'>Edit</button></td></tr>`).join("")}
       </tbody></table>`;
   }
   el.innerHTML=`
@@ -1056,7 +1062,9 @@ async function rejectCompOff(id){ await sb.from("hr_comp_off").update({status:"r
 
 
 /* ===================== ADMIN — view/edit any employee profile ===================== */
-async function viewEmpProfile(empId, name){
+async function viewEmpProfile(empId){
+  const {data:emp}=await sb.from("employees").select("full_name").eq("id",empId).maybeSingle();
+  const name=emp?.full_name||"Employee";
   const {data:p}=await sb.from("hr_profiles").select("*").eq("employee_id",empId).maybeSingle();
   let av=""; if(p?.avatar_path){ try{ av=await signedUrl(p.avatar_path);}catch(e){} }
   const v=f=>esc(p?.[f]??""); const st=p?.profile_status||"none";
@@ -1088,6 +1096,151 @@ async function saveEmpProfile(empId, st){
   const {error}=await sb.from("hr_profiles").upsert(row,{onConflict:"employee_id"});
   if(error) return toast("Save failed: "+error.message);
   closeModal(); toast("Profile saved.");
+}
+
+
+/* ===================== FORMATS v2 (match uploaded references) ===================== */
+const COMPANY_NAME="Lintel Space Atelier India Private Limited";
+const COMPANY_ADDR="Ramky House, Ground Floor, Kalyan Nagar, B'lore-43, 560043, Bangalore, Karnataka, India";
+function inWords(num){
+  num=Math.round(Number(num)||0); if(num===0) return "Zero Rupees Only";
+  const a=["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+  const b=["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+  const two=n=>n<20?a[n]:b[Math.floor(n/10)]+(n%10?" "+a[n%10]:"");
+  const three=n=>(n>=100?a[Math.floor(n/100)]+" Hundred"+(n%100?" ":""):"")+(n%100?two(n%100):"");
+  let str="", cr=Math.floor(num/10000000); num%=10000000;
+  let l=Math.floor(num/100000); num%=100000; let t=Math.floor(num/1000); num%=1000;
+  if(cr) str+=three(cr)+" Crore "; if(l) str+=three(l)+" Lakh "; if(t) str+=three(t)+" Thousand "; if(num) str+=three(num);
+  return str.trim()+" Rupees Only";
+}
+
+const SLIP_CSS=`*{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;margin:0;padding:24px;background:#fff}
+.slip{max-width:840px;margin:auto;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden}
+.s-hd{display:flex;justify-content:space-between;align-items:flex-start;padding:22px 26px;border-bottom:1px solid #eee}
+.s-co{display:flex;gap:12px;align-items:flex-start} .s-co img{width:48px;height:48px;border-radius:50%}
+.s-co-nm{font-size:19px;font-weight:700;color:#172136} .s-addr{font-size:12px;color:#6b7280;max-width:440px;margin-top:3px}
+.s-mo{text-align:right;font-size:13px;color:#6b7280} .s-mo b{font-size:16px;color:#172136}
+.s-emp{display:flex;justify-content:space-between;align-items:center;padding:20px 26px;gap:20px;flex-wrap:wrap}
+.s-info div{display:flex;gap:10px;margin-bottom:9px;font-size:13px} .s-info span{width:130px;color:#6b7280} .s-info b{color:#172136}
+.s-net{background:#172136;color:#fff;border-radius:8px;padding:18px 26px;min-width:230px}
+.s-net .v{font-size:24px;font-weight:700} .s-net .l{font-size:12px;opacity:.85;margin-top:2px}
+.s-tbl{width:calc(100% - 52px);margin:0 26px 4px;border-collapse:collapse;border:1px solid #e5e7eb}
+.s-tbl th{background:#f8f9fb;text-align:left;padding:11px 14px;font-size:12px;letter-spacing:.3px;color:#374151;border-bottom:1px solid #e5e7eb}
+.s-tbl td{padding:11px 14px;font-size:13px;border-bottom:1px solid #f0f0f0} .s-tbl .r{text-align:right}
+.s-tbl th:nth-child(3),.s-tbl td:nth-child(3){border-left:1px solid #e5e7eb}
+.s-tot td{font-weight:700;color:#172136;border-top:1px solid #e5e7eb;background:#fafafa;font-size:14px}
+.s-payable{display:flex;justify-content:space-between;align-items:stretch;margin:16px 26px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
+.s-payable>div:first-child{padding:16px 18px} .s-payable .lab{font-size:12px;color:#374151;font-weight:700} .s-payable .sub{font-size:11px;color:#9ca3af}
+.s-pay-amt{background:#172136;color:#fff;padding:0 28px;display:flex;align-items:center;font-size:20px;font-weight:700}
+.s-words{text-align:center;padding:14px;font-size:13px;border-top:1px solid #eee} .s-words b{color:#172136}
+.s-foot{text-align:center;color:#9ca3af;font-style:italic;font-size:12px;padding:12px;border-top:1px solid #f0f0f0}
+@media print{.noprint{display:none}}`;
+
+function printSlip(sl,name,code,desig){
+  const e=Object.entries(sl.earnings||{}), d=Object.entries(sl.deductions||{});
+  const totD=d.reduce((a,[,v])=>a+Number(v||0),0), rows=Math.max(e.length,d.length);
+  const payDate=new Date().toLocaleDateString("en-GB");
+  const w=window.open("","_blank");
+  w.document.write(`<html><head><title>Payslip ${monthLbl(sl.slip_month)}</title><style>${SLIP_CSS}</style></head><body>
+    <div class="slip">
+      <div class="s-hd">
+        <div class="s-co"><img src="${LSA_SEAL}"/><div><div class="s-co-nm">${COMPANY_NAME}</div><div class="s-addr">${COMPANY_ADDR}</div></div></div>
+        <div class="s-mo">Payslip For the Month<br><b>${sl.slip_month.slice(0,7)}</b></div>
+      </div>
+      <div class="s-emp">
+        <div class="s-info">
+          <div><span>Employee Name</span><b>${esc(name)}</b></div>
+          <div><span>Employee ID</span><b>${esc(code||"—")}</b></div>
+          <div><span>Designation</span><b>${esc(desig||"—")}</b></div>
+          <div><span>Pay Date</span><b>${payDate}</b></div>
+        </div>
+        <div class="s-net"><div class="v">${inr(sl.net_pay)}</div><div class="l">Total Net Pay</div></div>
+      </div>
+      <table class="s-tbl"><thead><tr><th>EARNINGS</th><th class="r">AMOUNT</th><th>DEDUCTIONS</th><th class="r">AMOUNT</th></tr></thead><tbody>
+        ${Array.from({length:rows}).map((_,i)=>`<tr>
+          <td>${e[i]?esc(e[i][0]):""}</td><td class="r">${e[i]?inr(e[i][1]):""}</td>
+          <td>${d[i]?esc(d[i][0]):""}</td><td class="r">${d[i]?inr(d[i][1]):""}</td></tr>`).join("")}
+        <tr class="s-tot"><td>Gross Earnings</td><td class="r">${inr(sl.gross)}</td><td>Total Deductions</td><td class="r">${inr(totD)}</td></tr>
+      </tbody></table>
+      <div class="s-payable"><div><div class="lab">TOTAL NET PAYABLE</div><div class="sub">Gross Earnings − Total Deductions</div></div><div class="s-pay-amt">${inr(sl.net_pay)}</div></div>
+      <div class="s-words">Amount In Words : <b>${inWords(sl.net_pay)}</b></div>
+      <div class="s-foot">— This is a system-generated document. —</div>
+    </div>
+    <button onclick="window.print()" class="noprint" style="margin:20px auto;display:block;padding:10px 18px">Print / Save as PDF</button>
+  </body></html>`);
+  w.document.close();
+}
+
+const OFFER_CSS=`body{font-family:Georgia,'Times New Roman',serif;color:#1a1a1a;max-width:770px;margin:auto;padding:44px;line-height:1.6}
+.lh{width:100%;border:1px solid #172136;border-collapse:collapse;margin-bottom:22px} .lh td{padding:14px 18px;text-align:center}
+.lh b{font-size:20px;letter-spacing:1px;color:#172136} .lh-sub{font-size:10px;letter-spacing:3px;color:#8C6A24;margin-top:5px}
+.ref{font-size:13px;color:#333;margin:6px 0 16px} p{margin:11px 0;font-size:13.5px;text-align:justify}
+.brk{width:100%;border-collapse:collapse;margin:12px 0;font-size:12.5px}
+.brk th{background:#f4efe6;text-align:left;padding:7px 11px;border:1px solid #ddd} .brk td{padding:7px 11px;border:1px solid #eee}
+.brk .r{text-align:right} .brk .tot td{font-weight:700;background:#faf7f0}
+.acc{margin-top:22px;border-top:1px solid #ccc;padding-top:14px}
+.sig{width:100%;border-collapse:collapse;margin-top:14px} .sig td{border:1px solid #ccc;padding:16px;width:50%;font-size:12px;color:#666}
+.foot{text-align:center;color:#8C6A24;font-size:11px;margin-top:28px;font-style:italic}
+@media print{.noprint{display:none}}`;
+
+function readOffer(){
+  const g=id=>{const el=document.querySelector("#of-"+id);return el?el.value.trim():"";};
+  return {name:g("name"),email:g("email"),phone:g("phone"),addr:g("addr"),desig:g("desig"),dept:g("dept"),
+    report:g("report")||"the Director – Operations",net:Number(g("net")||0),ctc:Number(g("ctc")||0),
+    doj:g("doj"),valid:g("valid"),loc:g("loc")||"Bengaluru",days:g("days")||"Monday to Saturday",
+    prob:Number(g("prob")||3),notice:Number(g("notice")||1)};
+}
+function offerLetterHTML(d){
+  const today=new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+  const dojL=d.doj?new Date(d.doj).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}):"a mutually agreed date";
+  const validL=d.valid?new Date(d.valid).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}):"";
+  const ref="LSA/HR/"+new Date().getFullYear()+"/"+((d.name||"XX").split(" ").map(x=>x[0]||"").join("").toUpperCase())+"-"+String(Date.now()).slice(-3);
+  let breakup="";
+  if(d.ctc>0){
+    const m=d.ctc/12, basic=Math.round(m*0.4), hra=Math.round(basic*0.5), pfEr=Math.round(basic*0.12);
+    const special=Math.max(0,Math.round(m-basic-hra-pfEr)), pfEe=Math.round(basic*0.12), pt=200;
+    const gross=basic+hra+special, net=gross-pfEe-pt;
+    breakup=`<table class="brk"><thead><tr><th>Earnings</th><th class="r">Monthly (₹)</th><th>Deductions</th><th class="r">Monthly (₹)</th></tr></thead><tbody>
+      <tr><td>Basic</td><td class="r">${inr(basic)}</td><td>PF (Employee)</td><td class="r">${inr(pfEe)}</td></tr>
+      <tr><td>HRA</td><td class="r">${inr(hra)}</td><td>Professional Tax</td><td class="r">${inr(pt)}</td></tr>
+      <tr><td>Special Allowance</td><td class="r">${inr(special)}</td><td></td><td></td></tr>
+      <tr class="tot"><td>Gross</td><td class="r">${inr(gross)}</td><td>Net Take-Home</td><td class="r">${inr(net)}</td></tr>
+    </tbody></table>`;
+  }
+  return `<div class="ltr">
+    <table class="lh"><tr><td><b>LINTEL SPACE ATELIER</b><div class="lh-sub">WHERE LUXURY MEETS FUNCTIONALITY</div></td></tr></table>
+    <p class="ref">Ref: ${ref}<br>Date: ${today}</p>
+    <p><b>To,</b><br><b>${esc(d.name)}</b>${d.addr?"<br>"+esc(d.addr).replace(/\n/g,"<br>"):""}</p>
+    <p><b>Subject: Offer of Employment — ${esc(d.desig||"")}</b></p>
+    <p>Dear ${esc((d.name||"Candidate").split(" ")[0])},</p>
+    <p>We are delighted to extend this offer of employment to you for the position of <b>${esc(d.desig||"")}</b> at Lintel Space Atelier. Your experience and approach to project delivery align strongly with our studio's philosophy, and we are confident you will be a valuable addition to our team.</p>
+    <p>The principal terms of your engagement are set out below. This letter, together with your acceptance, forms the basis of your employment with us.</p>
+    <p><b>1. Position &amp; Reporting.</b> You will join as ${esc(d.desig||"")}${d.dept?" in the "+esc(d.dept)+" function":""}, reporting to ${esc(d.report)}. You will be responsible for end-to-end execution of assigned residential and commercial projects, including timeline and cost control, vendor and site coordination, quality assurance, and client communication.</p>
+    <p><b>2. Place of Work.</b> Your primary place of work will be Lintel Space Atelier, ${esc(d.loc)}, along with active site presence at project locations as required. The Company may, at its discretion, assign you to any of its offices or project sites.</p>
+    <p><b>3. Compensation.</b> You will receive a monthly net take-home salary of <b>${inr(d.net)}</b>, payable on or before the 5th of each subsequent month. This amount is net of applicable statutory deductions (Provident Fund, Professional Tax, and TDS where applicable).${d.ctc>0?" An indicative monthly salary structure is set out below." :" A detailed salary structure will be provided separately with your appointment letter."}</p>
+    ${breakup}
+    <p><b>4. Date of Joining.</b> Your date of joining will be ${dojL}${validL?". This offer is valid subject to your joining on or before "+validL:""}.</p>
+    <p><b>5. Working Hours.</b> Your normal working days will be ${esc(d.days)}, in line with Company policy. Given the nature of project delivery, reasonable flexibility in hours and site availability is expected.</p>
+    <p><b>6. Probation &amp; Confirmation.</b> You will be on probation for a period of ${d.prob} (${inWords(d.prob).replace(" Rupees Only","")}) month(s) from your date of joining. Upon satisfactory performance, your services will be confirmed in writing. The Company reserves the right to extend the probation period at its discretion.</p>
+    <p><b>7. Notice Period.</b> Either party may terminate this engagement by giving ${d.notice} month(s)' written notice, or salary in lieu thereof, as per Company policy.</p>
+    <p><b>8. Confidentiality &amp; Conduct.</b> You will treat all client information, designs, commercials, and Company data as strictly confidential, both during and after your employment. You are expected to uphold the professional standards and values of Lintel Space Atelier at all times.</p>
+    <p><b>9. Documentation.</b> This offer is subject to verification of your credentials and submission of standard onboarding documents (identity and address proof, educational and prior-employment records, and passport-size photographs) on or before your joining date.</p>
+    <p>We look forward to welcoming you to Lintel Space Atelier and to a long and rewarding association. Kindly sign and return a copy of this letter as a token of your acceptance.</p>
+    <p>Warm regards,<br>For Lintel Space Atelier,<br><br><b>Amit Nagar</b><br>Founder &amp; Principal Designer</p>
+    <p class="acc"><b>ACCEPTANCE</b><br>I, ${esc(d.name)}, have read and understood the terms above and accept this offer of employment with Lintel Space Atelier.</p>
+    <table class="sig"><tr><td>Signature</td><td>Date</td></tr><tr><td>&nbsp;<br>&nbsp;</td><td>&nbsp;</td></tr></table>
+    <p class="foot">Lintel Space Atelier · ${esc(d.loc)}, Karnataka · Where luxury meets functionality</p>
+  </div>`;
+}
+function offerPlain(d){
+  const dojL=d.doj||"a mutually agreed date";
+  return `Dear ${d.name},\n\nWe are delighted to extend this offer of employment for the position of ${d.desig} at Lintel Space Atelier.\n\nReporting to: ${d.report}\nPlace of work: Lintel Space Atelier, ${d.loc}\nMonthly net take-home: ${inr(d.net)} (net of PF, Professional Tax and TDS as applicable)\nDate of joining: ${dojL}\nWorking days: ${d.days}\nProbation: ${d.prob} month(s)\nNotice period: ${d.notice} month(s)\n\nThis offer is subject to verification of your credentials and submission of standard onboarding documents. Please find the formal offer letter attached / to follow.\n\nWe look forward to welcoming you to the Lintel family.\n\nWarm regards,\nAmit Nagar\nFounder & Principal Designer\nFor Lintel Space Atelier`;
+}
+function previewOffer(){
+  const d=readOffer(); if(!d.name) return toast("Enter the candidate's name.");
+  const w=window.open("","_blank");
+  w.document.write(`<html><head><title>Offer — ${esc(d.name)}</title><style>${OFFER_CSS}</style></head><body>${offerLetterHTML(d)}<button onclick="window.print()" class="noprint" style="margin-top:24px;padding:10px 18px">Print / Save as PDF</button></body></html>`);
+  w.document.close();
 }
 
 
