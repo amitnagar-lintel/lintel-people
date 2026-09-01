@@ -4,6 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#0D0D27" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>Lintel People — Employee Portal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -473,7 +477,7 @@ async function renderOverview(el){
   const h=new Date().getHours();
   const greet = h<12?"Good morning": h<17?"Good afternoon":"Good evening";
   const today=todayISO();
-  const [bal, claims, leaves, ts, slip, prof, kyc, out] = await Promise.all([
+  const [bal, claims, leaves, ts, slip, prof, kyc, out, att, cel] = await Promise.all([
     balancesNow(),
     sb.from("hr_reimbursements").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(4),
     sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(4),
@@ -481,7 +485,9 @@ async function renderOverview(el){
     sb.from("hr_salary_slips").select("slip_month,net_pay,pdf_path").eq("employee_id",ME.id).eq("status","published").order("slip_month",{ascending:false}).limit(1),
     sb.from("hr_profiles").select("profile_status").eq("employee_id",ME.id).maybeSingle(),
     sb.from("hr_kyc_documents").select("doc_type,status").eq("employee_id",ME.id),
-    sb.rpc("hr_whos_out_today").then(r=>r).catch(()=>({data:null}))
+    sb.rpc("hr_whos_out_today").then(r=>r).catch(()=>({data:null})),
+    sb.from("hr_attendance").select("*").eq("employee_id",ME.id).eq("day",today).maybeSingle(),
+    sb.rpc("hr_celebrations").then(r=>r).catch(()=>({data:null}))
   ]);
 
   /* --- needs-attention alerts --- */
@@ -514,10 +520,23 @@ async function renderOverview(el){
   ].sort((a,b)=>a.when<b.when?1:-1).slice(0,5);
 
   const s=slip.data&&slip.data[0];
+
+  /* --- punch in/out --- */
+  const a=att.data, tHM=x=>x?new Date(x).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit",hour12:true}):"";
+  const hrsSince=x=>Math.round((Date.now()-new Date(x))/360000)/10;
+  let punchSub, punchBtn;
+  if(!a?.punch_in){ punchSub="Not punched in yet"; punchBtn=`<button class="btn brass" id="punchBtn" onclick="punchIn()">${icon("clock")} Punch in</button>`; }
+  else if(!a.punch_out){ punchSub=`In since ${tHM(a.punch_in)} · ${hrsSince(a.punch_in)} hrs so far`; punchBtn=`<button class="btn" id="punchBtn" onclick="punchOut()">Punch out</button>`; }
+  else { punchSub=`${tHM(a.punch_in)} – ${tHM(a.punch_out)} · ${Math.round((new Date(a.punch_out)-new Date(a.punch_in))/360000)/10} hrs ✓`; punchBtn=`<button class="btn ghost sm" onclick="punchOut()">Punch out again</button>`; }
+  const punchCard=`<div class="card" style="margin-bottom:14px"><div class="row-head" style="margin-bottom:0">
+      <div><h3>Attendance today</h3><div class="h3sub" style="margin-bottom:0">${punchSub}${a?.punch_in_lat?' · <span title="location recorded">📍</span>':""}</div></div>
+      ${punchBtn}</div></div>`;
+
   el.innerHTML = `
     <h2 class="page display">${greet}, ${esc(ME.full_name.split(" ")[0])}</h2>
     <div class="page-sub">${new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}${ME.designation?" · "+esc(ME.designation):""}</div>
 
+    ${punchCard}
     ${alerts.map(a=>`<div class="alert">${icon("alert")}<span>${a.t}</span><button class="btn ghost sm go" onclick="go('${a.go}')">${a.cta} →</button></div>`).join("")}
 
     <div class="qa-grid" style="margin-top:${alerts.length?"14px":"0"}">
@@ -542,6 +561,10 @@ async function renderOverview(el){
     ${(out&&out.data&&out.data.length)?`<div class="card"><h3>Out today</h3><div class="h3sub">Teammates on approved leave</div>
       ${out.data.map(o=>`<div class="doc-row"><div class="doc-name">${esc(o.full_name)}</div><div class="doc-meta">${esc(labelFor(o.leave_type))} · back ${dMed(o.back_on)}</div></div>`).join("")}</div>`:""}
 
+    ${(cel&&cel.data&&cel.data.length)?`<div class="card"><h3>Celebrations this week</h3><div class="h3sub">Birthdays and work anniversaries</div>
+      ${cel.data.map(c=>`<div class="doc-row"><div class="doc-name">${c.kind==="birthday"?"🎂":"🎉"} ${esc(c.full_name)}</div>
+        <div class="doc-meta">${c.kind==="birthday"?"Birthday":`${c.years} year${c.years>1?"s":""} at Lintel`} · ${new Date(c.on_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</div></div>`).join("")}</div>`:""}
+
     ${nextHol?`<div class="card"><div class="row-head"><h3>Next holiday</h3><button class="btn ghost sm" onclick="go('holidays')">All →</button></div>
       <div class="doc-row" style="border:none;padding:0"><div><div class="doc-name">${esc(nextHol.name)}</div>
       <div class="doc-meta">${new Date(nextHol.holiday_date).toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}</div></div>
@@ -550,7 +573,67 @@ async function renderOverview(el){
     <div class="card">
       <h3>Recent activity</h3><div class="h3sub">Your latest requests and their status</div>
       ${acts.length? acts.map(a=>`<div class="req">${a.html}</div>`).join("") : `<div class="empty">Nothing yet — your leave requests and claims will show up here.</div>`}
-    </div>`;
+    </div>
+    ${installCardHtml()}`;
+}
+
+/* ===================== punch in / out ===================== */
+function getGeo(){
+  return new Promise(res=>{
+    if(!navigator.geolocation) return res(null);
+    const t=setTimeout(()=>res(null),6000);
+    navigator.geolocation.getCurrentPosition(
+      p=>{ clearTimeout(t); res({lat:p.coords.latitude, lng:p.coords.longitude}); },
+      ()=>{ clearTimeout(t); res(null); },
+      {enableHighAccuracy:true, timeout:5500, maximumAge:120000});
+  });
+}
+async function punch(field){
+  const btn=$("#punchBtn"); if(btn){ btn.disabled=true; btn.textContent="Recording…"; }
+  const geo=await getGeo();
+  const d=todayISO(), now=new Date().toISOString();
+  const patch={[field]:now};
+  if(geo){ patch[field+"_lat"]=geo.lat; patch[field+"_lng"]=geo.lng; }
+  try{
+    const {data:row}=await sb.from("hr_attendance").select("employee_id").eq("employee_id",ME.id).eq("day",d).maybeSingle();
+    const {error} = row
+      ? await sb.from("hr_attendance").update(patch).eq("employee_id",ME.id).eq("day",d)
+      : await sb.from("hr_attendance").insert({employee_id:ME.id, day:d, ...patch});
+    if(error) throw error;
+    toast(field==="punch_in" ? ("Punched in"+(geo?" — location recorded":"")) : "Punched out. See you!");
+  }catch(e){ toast("Couldn't record punch: "+(e.message||"error")); }
+  render("overview");
+}
+function punchIn(){ punch("punch_in"); }
+function punchOut(){ punch("punch_out"); }
+
+/* ===================== PWA install ===================== */
+let __installEvt=null;
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); __installEvt=e; });
+function isStandalone(){ return matchMedia("(display-mode: standalone)").matches || navigator.standalone===true; }
+function installCardHtml(){
+  try{
+    if(isStandalone() || localStorage.getItem("lp_install_dismissed")) return "";
+  }catch(e){ return ""; }
+  const isiOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
+  if(!__installEvt && !isiOS) return "";
+  const body=__installEvt
+    ? `<button class="btn brass sm" onclick="promptInstall()">Add to home screen</button>`
+    : `<span class="h3sub" style="margin:0">Tap <b>Share</b> → <b>Add to Home Screen</b> in Safari</span>`;
+  return `<div class="card"><div class="row-head" style="margin-bottom:0">
+    <div><h3>Get the app feel</h3><div class="h3sub" style="margin-bottom:0">Lintel People works as an app on your phone.</div></div>
+    <div style="display:flex;gap:8px;align-items:center">${body}
+      <button class="btn ghost sm" onclick="dismissInstall()">✕</button></div></div></div>`;
+}
+async function promptInstall(){
+  if(!__installEvt) return;
+  __installEvt.prompt();
+  try{ await __installEvt.userChoice; }catch(e){}
+  __installEvt=null; render("overview");
+}
+function dismissInstall(){ try{ localStorage.setItem("lp_install_dismissed","1"); }catch(e){} render("overview"); }
+if("serviceWorker" in navigator && location.protocol==="https:"){
+  addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}); });
 }
 function tableOrEmpty(rows, cols, mapfn, emptyMsg){
   rows = rows||[];
@@ -727,10 +810,23 @@ async function submitLeave(){
   }
   const btn=$("#lv-submit"); btn.disabled=true; btn.textContent="Sending…";
   const half = (from===to && LV_HALF!=="full") ? ` (${LV_HALF==="first"?"first half":"second half"})` : "";
-  const { error } = await sb.from("hr_leave_requests").insert({
-    employee_id:ME.id, leave_type:type, from_date:from, to_date:to, days, reason:(reason+half).trim(), status:"pending" });
+  const { data:ins, error } = await sb.from("hr_leave_requests").insert({
+    employee_id:ME.id, leave_type:type, from_date:from, to_date:to, days, reason:(reason+half).trim(), status:"pending" }).select("id").single();
   if(error){ btn.disabled=false; btn.textContent="Send request"; return lvErr("Couldn't submit: "+error.message); }
-  closeModal(); toast("Leave request sent for approval."); render(CURRENT_VIEW==="leave"?"leave":CURRENT_VIEW);
+  notifyLeaveRequest(ins?.id);
+  closeModal(); toast("Leave request sent — admin gets an email with one-click approve."); render(CURRENT_VIEW==="leave"?"leave":CURRENT_VIEW);
+}
+async function notifyLeaveRequest(requestId){
+  if(!requestId) return;
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    if(!session) return;
+    fetch(SUPABASE_URL+"/functions/v1/people-leave",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+session.access_token, "apikey":SUPABASE_ANON_KEY },
+      body:JSON.stringify({request_id:requestId})
+    }).catch(()=>{});
+  }catch(e){}
 }
 async function cancelLeave(id){
   if(!confirm("Cancel this leave request?")) return;
@@ -758,21 +854,30 @@ async function renderClaims(el){
 }
 function claimModal(){
   openModal("New reimbursement claim", `
+    <label class="drop" id="cl-drop" style="flex-direction:column;padding:22px 14px;text-align:center;margin-bottom:14px;gap:6px">
+      <img id="cl-preview" style="display:none;max-height:120px;border-radius:8px;object-fit:contain"/>
+      <span style="font-size:22px">📷</span>
+      <span id="cl-fname" style="font-weight:600;color:var(--ink)">Photograph the bill</span>
+      <span class="h3sub" style="margin:0">or attach a PDF / image from your phone</span>
+      <input type="file" accept=".pdf,image/*" capture="environment" style="display:none" onchange="pickFile(this,'cl-fname')"/>
+    </label>
+    <div class="grid2">
+      <label class="fld"><span>Amount (₹)</span><input id="cl-amt" type="number" inputmode="numeric" min="1" placeholder="0"/></label>
+      <label class="fld"><span>Expense date</span><input id="cl-date" type="date" value="${todayISO()}"/></label>
+    </div>
     <label class="fld"><span>Category</span>
       <select id="cl-cat">${["Travel","Meals","Internet","Office supplies","Learning & courses","Medical","Other"].map(c=>`<option>${c}</option>`).join("")}</select></label>
-    <div class="grid2">
-      <label class="fld"><span>Amount (₹)</span><input id="cl-amt" type="number" min="1" placeholder="0"/></label>
-      <label class="fld"><span>Expense date</span><input id="cl-date" type="date"/></label>
-    </div>
     <label class="fld"><span>Note</span><input id="cl-note" placeholder="e.g. Cab to client site"/></label>
-    <label class="fld"><span>Receipt (PDF or image)</span>
-      <label class="drop" id="cl-drop">⇧ <span id="cl-fname">Attach a receipt</span>
-        <input type="file" accept=".pdf,image/*" style="display:none" onchange="pickFile(this,'cl-fname')"/></label></label>
     <button class="btn brass full" id="cl-submit" onclick="submitClaim()">Submit claim</button>`);
   window.__claimFile=null;
 }
 let __claimFile=null;
-function pickFile(input,labelId){ const f=input.files[0]; if(!f)return; window.__claimFile=f; $("#"+labelId).textContent=f.name; }
+function pickFile(input,labelId){
+  const f=input.files[0]; if(!f)return;
+  window.__claimFile=f; $("#"+labelId).textContent=f.name;
+  const img=$("#cl-preview");
+  if(img && f.type.startsWith("image/")){ img.src=URL.createObjectURL(f); img.style.display="block"; }
+}
 async function submitClaim(){
   const amt=$("#cl-amt").value, date=$("#cl-date").value, note=$("#cl-note").value.trim(), cat=$("#cl-cat").value;
   if(!amt||!date||!window.__claimFile) return toast("Amount, date and a receipt are required.");

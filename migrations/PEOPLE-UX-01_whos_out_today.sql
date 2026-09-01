@@ -1,5 +1,5 @@
 -- PEOPLE-UX-01 — "Out today" card on the Lintel People home screen
--- OPTIONAL: the portal works without this; the card simply stays hidden.
+-- APPLIED to Supabase 1 Sep 2026 (migration: people_ux_01_whos_out_today)
 -- Why an RPC: RLS on hr_leave_requests/employees restricts employees to their
 -- own rows. This SECURITY DEFINER function exposes ONLY (name, leave type,
 -- return date) of teammates on approved leave covering today — nothing else.
