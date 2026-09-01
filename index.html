@@ -525,7 +525,7 @@ async function renderOverview(el){
   const a=att.data, tHM=x=>x?new Date(x).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit",hour12:true}):"";
   const hrsSince=x=>Math.round((Date.now()-new Date(x))/360000)/10;
   let punchSub, punchBtn;
-  if(!a?.punch_in){ punchSub="Not punched in yet"; punchBtn=`<button class="btn brass" id="punchBtn" onclick="punchIn()">${icon("clock")} Punch in</button>`; }
+  if(!a?.punch_in){ punchSub="Not punched in yet · works within 100 m of the studio"; punchBtn=`<button class="btn brass" id="punchBtn" onclick="punchIn()">${icon("clock")} Punch in</button>`; }
   else if(!a.punch_out){ punchSub=`In since ${tHM(a.punch_in)} · ${hrsSince(a.punch_in)} hrs so far`; punchBtn=`<button class="btn" id="punchBtn" onclick="punchOut()">Punch out</button>`; }
   else { punchSub=`${tHM(a.punch_in)} – ${tHM(a.punch_out)} · ${Math.round((new Date(a.punch_out)-new Date(a.punch_in))/360000)/10} hrs ✓`; punchBtn=`<button class="btn ghost sm" onclick="punchOut()">Punch out again</button>`; }
   const punchCard=`<div class="card" style="margin-bottom:14px"><div class="row-head" style="margin-bottom:0">
@@ -578,6 +578,16 @@ async function renderOverview(el){
 }
 
 /* ===================== punch in / out ===================== */
+/* Geofence: Hettich Exclusive - Lintel Space Atelier, Ramky House, Kalyan Nagar
+   (Google business pin). Also enforced server-side by trg_punch_geofence. */
+const OFFICE={lat:13.027828, lng:77.6348597, radius:100};
+function distM(lat1,lng1,lat2,lng2){
+  const r=x=>x*Math.PI/180;
+  return 2*6371000*Math.asin(Math.sqrt(
+    Math.pow(Math.sin(r(lat2-lat1)/2),2)
+    + Math.cos(r(lat1))*Math.cos(r(lat2))*Math.pow(Math.sin(r(lng2-lng1)/2),2)));
+}
+const fmtDist=m=> m<1000 ? Math.round(m)+" m" : (Math.round(m/100)/10)+" km";
 function getGeo(){
   return new Promise(res=>{
     if(!navigator.geolocation) return res(null);
@@ -590,10 +600,20 @@ function getGeo(){
 }
 async function punch(field){
   const btn=$("#punchBtn"); if(btn){ btn.disabled=true; btn.textContent="Recording…"; }
+  const verb=field==="punch_in"?"punch in":"punch out";
   const geo=await getGeo();
+  if(!geo){
+    toast(`Location is required to ${verb} — allow location access and try again.`);
+    return render("overview");
+  }
+  const dist=distM(geo.lat, geo.lng, OFFICE.lat, OFFICE.lng);
+  if(dist>OFFICE.radius){
+    toast(`You're ${fmtDist(dist)} from the studio — you can only ${verb} within ${OFFICE.radius} m.`);
+    return render("overview");
+  }
   const d=todayISO(), now=new Date().toISOString();
   const patch={[field]:now};
-  if(geo){ patch[field+"_lat"]=geo.lat; patch[field+"_lng"]=geo.lng; }
+  patch[field+"_lat"]=geo.lat; patch[field+"_lng"]=geo.lng;
   try{
     const {data:row}=await sb.from("hr_attendance").select("employee_id").eq("employee_id",ME.id).eq("day",d).maybeSingle();
     const {error} = row

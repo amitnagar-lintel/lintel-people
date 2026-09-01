@@ -1,0 +1,9 @@
+-- PEOPLE-UX-04 — 100 m punch geofence around the studio
+-- APPLIED to Supabase 1 Sep 2026 (migration: people_ux_04_punch_geofence)
+-- Hettich Exclusive - Lintel Space Atelier, Ramky House, Kalyan Nagar
+-- Google business pin: 13.027828, 77.6348597 (also in index.html OFFICE const)
+-- trg_punch_geofence (BEFORE INSERT/UPDATE on hr_attendance): rejects any
+-- punch_in/punch_out set without coords or beyond 100 m (haversine), with the
+-- distance in the error. Bypass: direct DB access (no JWT claims) + HR admins.
+-- Verified: 1647 m -> rejected; 36 m -> accepted; no coords -> rejected;
+-- login-tracking writes (no punch fields) unaffected.
