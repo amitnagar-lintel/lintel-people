@@ -1354,13 +1354,13 @@ async function loadSalStruct(){
       <label class="fld" style="align-self:end"><button class="btn" onclick="generateSlip()">Generate &amp; publish</button></label></div></div>`;
 }
 function autoBreakup(){
-  /* Lintel policy (Sep 2026): no PF, no PT — payout equals monthly CTC.
-     Split: Basic 40% · HRA 50% of Basic · Special = remainder. */
+  /* Lintel policy (Sep 2026): no PF. Split: Basic 40% · HRA 50% of Basic ·
+     Special = remainder. Only deduction: Karnataka PT ₹200 when monthly > ₹25k. */
   const ctc=Number(document.querySelector("#sal-ctc").value||0), m=ctc/12;
   const basic=Math.round(m*0.40), hra=Math.round(basic*0.5);
   const special=Math.round(m)-basic-hra;
   document.querySelector("#sal-basic").value=basic; document.querySelector("#sal-hra").value=hra;
-  document.querySelector("#sal-special").value=Math.max(0,special); document.querySelector("#sal-pf").value=0; document.querySelector("#sal-pt").value=0;
+  document.querySelector("#sal-special").value=Math.max(0,special); document.querySelector("#sal-pf").value=0; document.querySelector("#sal-pt").value = m>25000 ? 200 : 0;
 }
 async function saveSalStruct(){
   const emp=document.querySelector("#sal-emp").value, n=id=>Number(document.querySelector("#sal-"+id).value||0);
