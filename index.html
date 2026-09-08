@@ -477,7 +477,7 @@ async function renderOverview(el){
   const h=new Date().getHours();
   const greet = h<12?"Good morning": h<17?"Good afternoon":"Good evening";
   const today=todayISO();
-  const [bal, claims, leaves, ts, slip, prof, kyc, out, att, cel] = await Promise.all([
+  const [bal, claims, leaves, ts, slip, prof, kyc, out, att, cel, site] = await Promise.all([
     balancesNow(),
     sb.from("hr_reimbursements").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(4),
     sb.from("hr_leave_requests").select("*").eq("employee_id",ME.id).order("created_at",{ascending:false}).limit(4),
@@ -487,7 +487,8 @@ async function renderOverview(el){
     sb.from("hr_kyc_documents").select("doc_type,status").eq("employee_id",ME.id),
     sb.rpc("hr_whos_out_today").then(r=>r).catch(()=>({data:null})),
     sb.from("hr_attendance").select("*").eq("employee_id",ME.id).eq("day",today).maybeSingle(),
-    sb.rpc("hr_celebrations").then(r=>r).catch(()=>({data:null}))
+    sb.rpc("hr_celebrations").then(r=>r).catch(()=>({data:null})),
+    sb.rpc("hr_my_site_today").then(r=>r).catch(()=>({data:null}))
   ]);
 
   /* --- needs-attention alerts --- */
@@ -528,9 +529,18 @@ async function renderOverview(el){
   if(!a?.punch_in){ punchSub="Not punched in yet · works within 100 m of the studio"; punchBtn=`<button class="btn brass" id="punchBtn" onclick="punchIn()">${icon("clock")} Punch in</button>`; }
   else if(!a.punch_out){ punchSub=`In since ${tHM(a.punch_in)} · ${hrsSince(a.punch_in)} hrs so far`; punchBtn=`<button class="btn" id="punchBtn" onclick="punchOut()">Punch out</button>`; }
   else { punchSub=`${tHM(a.punch_in)} – ${tHM(a.punch_out)} · ${Math.round((new Date(a.punch_out)-new Date(a.punch_in))/360000)/10} hrs ✓`; punchBtn=`<button class="btn ghost sm" onclick="punchOut()">Punch out again</button>`; }
+  const visits=(site&&site.data)||[];
+  const openVisit=visits.find(v=>!v.check_out_at);
+  const siteHtml=`<div style="border-top:1px solid var(--paper);margin-top:12px;padding-top:10px">
+      ${visits.map(v=>`<div class="doc-row" style="padding:6px 0;border:none">
+        <div><div class="doc-name">📍 ${esc(v.project_name)}</div>
+          <div class="doc-meta">${tHM(v.check_in_at)}${v.check_out_at?" – "+tHM(v.check_out_at):" · ongoing"}${v.in_distance_m!=null?" · "+v.in_distance_m+" m from site pin":""}</div></div>
+        ${!v.check_out_at?`<button class="btn ghost sm" onclick="siteCheckOut(this)">Check out</button>`:""}</div>`).join("")}
+      ${!openVisit?`<button class="btn ghost sm" onclick="siteModal()">＋ At a site? Check in</button>`:""}
+    </div>`;
   const punchCard=`<div class="card" style="margin-bottom:14px"><div class="row-head" style="margin-bottom:0">
       <div><h3>Attendance today</h3><div class="h3sub" style="margin-bottom:0">${punchSub}${a?.punch_in_lat?' · <span title="location recorded">📍</span>':""}</div></div>
-      ${punchBtn}</div></div>`;
+      ${punchBtn}</div>${siteHtml}</div>`;
 
   el.innerHTML = `
     <h2 class="page display">${greet}, ${esc(ME.full_name.split(" ")[0])}</h2>
@@ -626,6 +636,42 @@ async function punch(field){
 }
 function punchIn(){ punch("punch_in"); }
 function punchOut(){ punch("punch_out"); }
+
+/* ===================== site check-in / check-out ===================== */
+async function siteModal(){
+  openModal("Check in at a site", `<div class="load">Loading projects…</div>`);
+  const {data,error}=await sb.rpc("hr_site_projects");
+  if(error || !data || !data.length){ closeModal(); return toast("Couldn't load projects"+(error?": "+error.message:".")); }
+  const m=document.querySelector("#modalBg .modal"); if(!m) return;
+  m.innerHTML=`<h3 class="display">Check in at a site</h3>
+    <label class="fld"><span>Project</span>
+      <select id="st-proj">${data.map(p=>`<option value="${p.id}">${esc(p.name)}${p.client_name?" — "+esc(p.client_name):""}${p.has_fence?"":" ⚠ no geofence yet"}</option>`).join("")}</select></label>
+    <label class="fld"><span>Note (optional)</span><input id="st-note" placeholder="e.g. Modular installation review"/></label>
+    <div id="st-err" class="form-err"></div>
+    <div class="h3sub" style="margin-bottom:12px">Your location is recorded. Geofenced sites verify you're within their radius; sites without a pin just log where you checked in.</div>
+    <button class="btn brass full" id="st-submit" onclick="siteCheckIn()">Check in</button>`;
+}
+async function siteCheckIn(){
+  const err=m=>{ const e=$("#st-err"); if(e){ e.textContent=m; e.classList.add("show"); } else toast(m); };
+  const btn=$("#st-submit"); btn.disabled=true; btn.textContent="Checking in…";
+  const geo=await getGeo();
+  if(!geo){ btn.disabled=false; btn.textContent="Check in"; return err("Location is required — allow location access and try again."); }
+  const {data,error}=await sb.rpc("hr_site_check_in",{ p_project:Number($("#st-proj").value), p_lat:geo.lat, p_lng:geo.lng, p_notes:$("#st-note").value });
+  if(error){ btn.disabled=false; btn.textContent="Check in"; return err(error.message); }
+  closeModal();
+  const r=data&&data[0];
+  toast(`Checked in at ${r?r.project_name:"the site"}${r&&r.distance_m!=null?" · "+r.distance_m+" m from pin":""}`);
+  render("overview");
+}
+async function siteCheckOut(btn){
+  if(btn){ btn.disabled=true; btn.textContent="…"; }
+  const geo=await getGeo();
+  const {data,error}=await sb.rpc("hr_site_check_out",{ p_lat:geo?geo.lat:null, p_lng:geo?geo.lng:null });
+  if(error){ toast(error.message); return render("overview"); }
+  const r=data&&data[0];
+  toast(`Checked out of ${r?r.project_name:"the site"}.`);
+  render("overview");
+}
 
 /* ===================== PWA install ===================== */
 let __installEvt=null;
@@ -1157,15 +1203,40 @@ async function renderAdmin(el, tab){
       </tbody></table>`;
   } else if(tab==="attendance"){
     const day = window.__attDay || todayISO();
-    const {data}=await sb.from("hr_attendance").select("*").eq("day",day);
-    const map={}; (data||[]).forEach(a=>map[a.employee_id]=a);
+    const [att, sites, lv] = await Promise.all([
+      sb.from("hr_attendance").select("*").eq("day",day),
+      sb.rpc("hr_site_day",{p_day:day}).then(r=>r).catch(()=>({data:[]})),
+      sb.from("hr_leave_requests").select("employee_id,leave_type").eq("status","approved").lte("from_date",day).gte("to_date",day)
+    ]);
+    const map={}; (att.data||[]).forEach(a=>map[a.employee_id]=a);
+    const onLeave={}; (lv.data||[]).forEach(l=>onLeave[l.employee_id]=l.leave_type);
+    const siteBy={}, waSites=[];
+    (sites.data||[]).forEach(s=>{ if(s.employee_id){ (siteBy[s.employee_id]=siteBy[s.employee_id]||[]).push(s); } else waSites.push(s); });
     const fmtT=t=>t?new Date(t).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—";
+    const dow=new Date(day+"T12:00:00").getDay();
+    const isOff = dow===0 || dow===6 || HOLIDAYS.some(h=>h.holiday_date===day);
+    const past = day < todayISO();
     const ids=Object.keys(EMP).filter(id=>EMP[id].status!=="exited").sort((a,b)=>(NAME[a]||"").localeCompare(NAME[b]||""));
+    const rows=ids.map(id=>{
+      const a=map[id], sit=siteBy[id]||[];
+      const hours = a?.punch_in && a?.punch_out ? (Math.round((new Date(a.punch_out)-new Date(a.punch_in))/360000)/10 + " h") : "—";
+      const siteCell = sit.length ? sit.map(s=>`${esc(s.project_name)} <span style="color:var(--grey)">${fmtT(s.check_in_at)}–${s.check_out_at?fmtT(s.check_out_at):"…"}</span>`).join("<br>") : "—";
+      let st;
+      if(onLeave[id]) st=`<span class="pill warn">On leave (${esc(onLeave[id])})</span>`;
+      else if(a?.punch_in && a?.punch_out) st=`<span class="pill good">Present</span>`;
+      else if(a?.punch_in) st= past ? `<span class="pill bad">No punch-out</span>` : `<span class="pill good">In since ${fmtT(a.punch_in)}</span>`;
+      else if(a?.first_login) st=`<span class="pill mute">Login only</span>`;
+      else if(isOff) st=`<span class="pill mute">Off day</span>`;
+      else st=`<span class="pill bad">Absent</span>`;
+      return `<tr><td style="font-weight:600">${esc(NAME[id]||"—")}</td>
+        <td>${a?fmtT(a.punch_in):"—"}</td><td>${a?fmtT(a.punch_out):"—"}</td><td>${hours}</td>
+        <td style="font-size:12.5px">${siteCell}</td><td>${st}</td></tr>`;
+    }).join("");
     body=`<label class="fld" style="max-width:220px"><span>Date</span><input id="att-day" type="date" value="${day}" onchange="window.__attDay=this.value;renderAdmin(document.querySelector('#view'),'attendance')"/></label>
-      <div style="overflow-x:auto"><table class="t"><thead><tr><th>Employee</th><th>First login</th><th>Last logout</th><th>Last seen</th></tr></thead><tbody>
-      ${ids.map(id=>{const a=map[id];return `<tr><td style="font-weight:600">${esc(NAME[id]||"—")}</td><td>${a?fmtT(a.first_login):"—"}</td><td>${a?fmtT(a.last_logout):"—"}</td><td>${a?fmtT(a.last_seen):"—"}</td></tr>`;}).join("")}
-      </tbody></table></div>
-      <div class="h3sub" style="margin-top:8px">First login and last-seen are captured automatically. Last logout is recorded when the employee signs out.</div>`;
+      <div style="overflow-x:auto"><table class="t"><thead><tr><th>Employee</th><th>Punch in</th><th>Punch out</th><th>Hours</th><th>Site visits</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${waSites.length?`<div class="h3sub" style="margin-top:14px"><b>Site check-ins via WhatsApp (field staff):</b><br>
+        ${waSites.map(s=>`${esc(s.staff_name||"—")} — ${esc(s.project_name)} ${fmtT(s.check_in_at)}${s.check_out_at?"–"+fmtT(s.check_out_at):""}`).join("<br>")}</div>`:""}
+      <div class="h3sub" style="margin-top:8px">Punches are studio-geofenced (100 m); site visits are geofenced per project where a pin is set. "Login only" = opened the portal but never punched.</div>`;
   }
   el.innerHTML=`
     <h2 class="page display">Admin</h2>

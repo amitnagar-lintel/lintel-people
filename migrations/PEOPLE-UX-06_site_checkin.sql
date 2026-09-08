@@ -1,0 +1,14 @@
+-- PEOPLE-UX-06 — portal site check-in/out + admin attendance day view
+-- APPLIED to Supabase 3 Sep 2026 (migration: people_ux_06_site_checkin)
+-- site_attendance.employee_id added (staff_id stays for the WA/team_directory
+-- flow). SECURITY DEFINER RPCs (RLS on projects/site_attendance untouched):
+--   hr_site_projects()            open projects for the check-in picker
+--   hr_site_check_in(project,lat,lng,notes)  per-project geofence
+--                                 (geofence_radius_m, default 200 m; projects
+--                                 without a pin allow check-in, position logged)
+--   hr_site_check_out(lat,lng)    closes the open visit, records where
+--   hr_my_site_today()            employee's own visits for the Home card
+--   hr_site_day(day)              admin-only day view (portal + WA rows)
+-- hr_dist_m(lat,lng,lat,lng) haversine helper added.
+-- NOTE: projects.id is BIGINT. Only 4/32 projects have site pins — seed
+-- site_lat/site_lng/geofence_radius_m on projects to activate their fences.
