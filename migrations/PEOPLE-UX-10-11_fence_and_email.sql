@@ -1,0 +1,6 @@
+-- PEOPLE-UX-10 (applied 15 Sep): projects.geofence_radius_m default 300 → 100;
+--   all 18 properly-pinned projects tightened to 100 m (Dr Manjula #28 kept
+--   at 1000 m — town-level Chintamani pin, not the house).
+-- PEOPLE-UX-11 (applied 15 Sep): employees.work_email NOT NULL dropped —
+--   site engineers without a lintelspace.com ID join WhatsApp attendance on
+--   name+phone alone; NULL email = no portal login, everything else works.
