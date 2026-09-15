@@ -1,0 +1,14 @@
+-- PEOPLE-UX-08 + 09 — WA punch link extended to project sites
+-- BOTH APPLIED to Supabase 15 Sep 2026
+-- 08 (people_ux_08_site_wa_selfies): site_attendance.in_selfie/out_selfie.
+-- 09 (people_ux_09_site_attendance_staff_nullable): staff_id NOT NULL dropped
+--    + check (staff_id or employee_id present). The NOT NULL was blocking
+--    EVERY employee-keyed insert — including the portal's hr_site_check_in
+--    RPC, which had never been exercised against the real table until now.
+--
+-- punch edge fn v4: ONE link, location decides — studio fence (100 m) →
+-- hr_attendance punch; any mapped project fence (site_lat + geofence_radius_m,
+-- default 200) → site_attendance check-in/out (source 'wa', selfie on IN);
+-- OUT closes an open site visit first (from anywhere, distance recorded),
+-- else studio punch-out. Mapped today: Abhishek Sharma, Jason, Selva Raj,
+-- Sudeep (300 m each).
