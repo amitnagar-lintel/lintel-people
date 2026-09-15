@@ -1,0 +1,14 @@
+-- PEOPLE-UX-07 — WhatsApp attendance (Hajiri-style)
+-- APPLIED to Supabase 15 Sep 2026 (migration: people_ux_07_wa_punch_selfies)
+-- hr_attendance gains punch_in_selfie / punch_out_selfie (paths into the
+-- private employee-docs bucket: <emp>/attendance/<day>_<in|out>_<ts>.jpg).
+--
+-- Companion pieces (not in this repo):
+--  * Supabase edge fn `punch` (v2): tokenized GPS+selfie punch page.
+--    GET ?mint_for= (bearer service key or x-cron-secret) mints links;
+--    GET ?e=&t= serves the page; POST records with 100 m studio fence
+--    validated in-function (service-role writes bypass trg_punch_geofence).
+--    Selfie required on punch-in, optional on punch-out. Late-by vs 10:00 IST.
+--  * lintel-crm attendanceEngine.js (Priya): "In"/"Out" keyword → link;
+--    reminders 09:55/19:05 IST. employees.phone backfilled from hr_profiles
+--    (6 of 15; 9 employees still missing numbers).
