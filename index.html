@@ -1220,7 +1220,7 @@ async function renderAdmin(el, tab){
     const rows=ids.map(id=>{
       const a=map[id], sit=siteBy[id]||[];
       const hours = a?.punch_in && a?.punch_out ? (Math.round((new Date(a.punch_out)-new Date(a.punch_in))/360000)/10 + " h") : "—";
-      const siteCell = sit.length ? sit.map(s=>`${esc(s.project_name)} <span style="color:var(--grey)">${fmtT(s.check_in_at)}–${s.check_out_at?fmtT(s.check_out_at):"…"}</span>`).join("<br>") : "—";
+      const siteCell = sit.length ? sit.map(s=>`${esc(s.project_name)} <span style="color:var(--grey)">${fmtT(s.check_in_at)}–${s.check_out_at?fmtT(s.check_out_at):"…"}</span>${s.in_selfie?`<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" title="Check-in selfie" onclick="openDoc('${esc(s.in_selfie)}')">🤳</button>`:""}`).join("<br>") : "—";
       let st;
       if(onLeave[id]) st=`<span class="pill warn">On leave (${esc(onLeave[id])})</span>`;
       else if(a?.punch_in && a?.punch_out) st=`<span class="pill good">Present</span>`;
@@ -1228,8 +1228,9 @@ async function renderAdmin(el, tab){
       else if(a?.first_login) st=`<span class="pill mute">Login only</span>`;
       else if(isOff) st=`<span class="pill mute">Off day</span>`;
       else st=`<span class="pill bad">Absent</span>`;
+      const selfieBtn=p=>p?`<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" title="View selfie" onclick="openDoc('${esc(p)}')">🤳</button>`:"";
       return `<tr><td style="font-weight:600">${esc(NAME[id]||"—")}</td>
-        <td>${a?fmtT(a.punch_in):"—"}</td><td>${a?fmtT(a.punch_out):"—"}</td><td>${hours}</td>
+        <td>${a?fmtT(a.punch_in):"—"}${selfieBtn(a?.punch_in_selfie)}</td><td>${a?fmtT(a.punch_out):"—"}${selfieBtn(a?.punch_out_selfie)}</td><td>${hours}</td>
         <td style="font-size:12.5px">${siteCell}</td><td>${st}</td></tr>`;
     }).join("");
     body=`<label class="fld" style="max-width:220px"><span>Date</span><input id="att-day" type="date" value="${day}" onchange="window.__attDay=this.value;renderAdmin(document.querySelector('#view'),'attendance')"/></label>
