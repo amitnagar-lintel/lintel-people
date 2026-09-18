@@ -1073,7 +1073,7 @@ async function renderMyAttendance(el){
   for(let d=1; d<=daysInMonth; d++){
     const iso=`${y}-${mm}-${String(d).padStart(2,"0")}`;
     const rec=byDay[iso]; const dw=new Date(y,m,d).getDay();
-    const isOff=dw===0||dw===6||holSet.has(iso);
+    const isOff=dw===0||holSet.has(iso);  // Sat is a working day; only Sun off
     const onLeave=leaveByDay[iso];
     let bg="var(--card)", body="";
     if(rec){
@@ -1282,7 +1282,7 @@ async function renderAdmin(el, tab){
     (sites.data||[]).forEach(s=>{ if(s.employee_id){ (siteBy[s.employee_id]=siteBy[s.employee_id]||[]).push(s); } else waSites.push(s); });
     const fmtT=t=>t?new Date(t).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—";
     const dow=new Date(day+"T12:00:00").getDay();
-    const isOff = dow===0 || dow===6 || HOLIDAYS.some(h=>h.holiday_date===day);
+    const isOff = dow===0 || HOLIDAYS.some(h=>h.holiday_date===day);  // Sat working; only Sun off
     const past = day < todayISO();
     const ids=Object.keys(EMP).filter(id=>EMP[id].status!=="exited").sort((a,b)=>(NAME[a]||"").localeCompare(NAME[b]||""));
     const rows=ids.map(id=>{
