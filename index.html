@@ -378,6 +378,7 @@ const ICONS={
   claim:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
   upload:'<path d="M12 16V4"/><path d="m6 9 6-5 6 5"/><path d="M4 20h16"/>',
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  cal:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>',
   sun:'<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/>',
   gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1"/>',
   more:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
@@ -391,7 +392,7 @@ const NAV_GROUPS=[
   ["", [["overview","Home","home"]]],
   ["You", [["profile","My profile","user"],["documents","My documents","doc"],["kyc","KYC & uploads","upload"]]],
   ["Money", [["salary","Salary & payslips","rupee"],["claims","Reimbursements","claim"]]],
-  ["Time", [["leave","Leave","leaf"],["timesheet","Timesheet","clock"],["holidays","Holidays","sun"]]]
+  ["Time", [["leave","Leave","leaf"],["attendance","My attendance","cal"],["timesheet","Timesheet","clock"],["holidays","Holidays","sun"]]]
 ];
 const MOBILE_TABS=[["overview","Home","home"],["leave","Leave","leaf"],["salary","Pay","rupee"],["timesheet","Timesheet","clock"]];
 let ADMIN_PENDING=0, CURRENT_VIEW="overview";
@@ -458,7 +459,7 @@ function render(view){
   setActive(view);
   window.scrollTo(0,0);
   const el=$("#view"); el.innerHTML=skeleton();
-  ({overview:renderOverview, documents:renderDocuments, leave:renderLeave, claims:renderClaims, kyc:renderKyc, timesheet:renderTimesheet, holidays:renderHolidays, admin:renderAdmin, profile:renderProfile, salary:renderSalary}[view]||renderOverview)(el);
+  ({overview:renderOverview, documents:renderDocuments, leave:renderLeave, claims:renderClaims, kyc:renderKyc, timesheet:renderTimesheet, holidays:renderHolidays, admin:renderAdmin, profile:renderProfile, salary:renderSalary, attendance:renderMyAttendance}[view]||renderOverview)(el);
   refreshAdminBadge();
 }
 window.addEventListener("popstate",()=>{ if(ME) render((location.hash||"#overview").slice(1)); });
@@ -1044,6 +1045,73 @@ async function submitTimesheet(){
     employee_id:ME.id, work_date:todayISO(), entry, login_time:lin||null, logout_time:lout||null, hours, status:"submitted" });
   if(error){ btn.disabled=false; btn.textContent="Submit for today"; return toast("Couldn't submit: "+error.message); }
   $("#ts-stamp").classList.add("show"); toast("Timesheet submitted for today."); setTimeout(()=>render("timesheet"),700);
+}
+
+/* ===================== MY ATTENDANCE (calendar) ===================== */
+async function renderMyAttendance(el){
+  const now=new Date();
+  if(!window.__attCal) window.__attCal={y:now.getFullYear(), m:now.getMonth()};
+  const {y,m}=window.__attCal;
+  const mm=String(m+1).padStart(2,"0");
+  const [att, lv] = await Promise.all([
+    sb.rpc("hr_my_attendance_month",{p_year:y, p_month:m+1}).then(r=>r).catch(()=>({data:[]})),
+    sb.from("hr_leave_requests").select("from_date,to_date,leave_type").eq("employee_id",ME.id).eq("status","approved")
+      .lte("from_date",`${y}-${mm}-28`).gte("to_date",`${y}-${mm}-01`).then(r=>r).catch(()=>({data:[]}))
+  ]);
+  if(!HOLIDAYS.length) await loadHolidays();
+  const byDay={}; (att.data||[]).forEach(r=>byDay[r.day]=r);
+  const leaveByDay={};
+  (lv.data||[]).forEach(l=>{ for(let d=new Date(l.from_date); d<=new Date(l.to_date); d.setDate(d.getDate()+1)){ leaveByDay[d.toISOString().slice(0,10)]=l.leave_type; } });
+  const holSet=new Set(HOLIDAYS.map(h=>h.holiday_date));
+  const fmtT=t=>t? new Date(t).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit",hour12:true}) : "—";
+  const monthName=new Date(y,m,1).toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+  const first=new Date(y,m,1); const startDow=(first.getDay()+6)%7;
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  const tISO=todayISO();
+  let cells=[]; for(let i=0;i<startDow;i++) cells.push('<div></div>');
+  let present=0, totalMins=0;
+  for(let d=1; d<=daysInMonth; d++){
+    const iso=`${y}-${mm}-${String(d).padStart(2,"0")}`;
+    const rec=byDay[iso]; const dw=new Date(y,m,d).getDay();
+    const isOff=dw===0||dw===6||holSet.has(iso);
+    const onLeave=leaveByDay[iso];
+    let bg="var(--card)", body="";
+    if(rec){
+      present++;
+      body=`<div style="font-size:10.5px;color:var(--green);font-weight:600;line-height:1.35">${fmtT(rec.first_in)}</div>
+            <div style="font-size:10.5px;color:${rec.last_out?"var(--red)":"var(--grey)"};line-height:1.35">${rec.last_out?fmtT(rec.last_out):"in …"}</div>`;
+      bg="var(--green-tint)";
+      if(rec.first_in&&rec.last_out) totalMins+=(new Date(rec.last_out)-new Date(rec.first_in))/60000;
+    } else if(onLeave){ bg="var(--amber-tint)"; body=`<div style="font-size:9.5px;color:var(--amber)">Leave</div>`; }
+    else if(isOff){ bg="#EEEAE0"; body=`<div style="font-size:9.5px;color:var(--grey)">${holSet.has(iso)?"Holiday":"Off"}</div>`; }
+    else if(iso<tISO){ body=`<div style="font-size:9.5px;color:var(--red)">Absent</div>`; }
+    const isToday=iso===tISO;
+    cells.push(`<div style="min-height:54px;border:1px solid ${isToday?"var(--brass)":"var(--line)"};border-radius:8px;padding:4px 5px;background:${bg}">
+      <div style="font-size:11px;font-weight:700;color:var(--ink)">${d}</div>${body}</div>`);
+  }
+  const DOW=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  el.innerHTML=`
+    <h2 class="page display">My attendance</h2>
+    <div class="page-sub">Your daily login and logout times.</div>
+    <div class="card">
+      <div class="row-head"><button class="btn ghost sm" onclick="attMonthStep(-1)">←</button>
+        <h3 style="margin:0">${monthName}</h3>
+        <button class="btn ghost sm" onclick="attMonthStep(1)" ${(y>now.getFullYear()||(y===now.getFullYear()&&m>=now.getMonth()))?"disabled":""}>→</button></div>
+      <div class="tscroll"><div style="min-width:340px">
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px">
+          ${DOW.map(d=>`<div style="text-align:center;font-size:10px;color:var(--grey);font-weight:600;letter-spacing:.4px">${d}</div>`).join("")}</div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px">${cells.join("")}</div>
+      </div></div>
+      <div class="h3sub" style="margin-top:12px">${present} day${present!==1?"s":""} present${totalMins>0?` · ${Math.round(totalMins/60*10)/10} hrs logged`:""} · <span style="color:var(--green)">● in</span> <span style="color:var(--red)">● out</span></div>
+    </div>`;
+}
+function attMonthStep(delta){
+  const c=window.__attCal||{y:new Date().getFullYear(),m:new Date().getMonth()};
+  let m=c.m+delta, yy=c.y;
+  if(m<0){m=11;yy--;} if(m>11){m=0;yy++;}
+  const now=new Date();
+  if(yy>now.getFullYear()||(yy===now.getFullYear()&&m>now.getMonth())) return;
+  window.__attCal={y:yy,m}; render("attendance");
 }
 
 /* ===================== modal ===================== */
