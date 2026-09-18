@@ -1132,7 +1132,7 @@ function workingLeaveDays(from,to){
   if(e<s) return {days:0,weekends:0,holidays:0};
   for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)){
     const iso=d.toISOString().slice(0,10), dow=d.getDay();
-    if(dow===0||dow===6){ wk++; continue; }
+    if(dow===0){ wk++; continue; }  // Sat is a working day; only Sun is a weekly-off (sandwich)
     if(hset.has(iso)){ hol++; continue; }
     days++;
   }
