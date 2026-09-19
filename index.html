@@ -1289,10 +1289,13 @@ async function renderAdmin(el, tab){
       const a=map[id], sit=siteBy[id]||[];
       const hours = a?.punch_in && a?.punch_out ? (Math.round((new Date(a.punch_out)-new Date(a.punch_in))/360000)/10 + " h") : "—";
       const siteCell = sit.length ? sit.map(s=>`${esc(s.project_name)} <span style="color:var(--grey)">${fmtT(s.check_in_at)}–${s.check_out_at?fmtT(s.check_out_at):"…"}</span>${s.in_selfie?`<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" title="Check-in selfie" onclick="openDoc('${esc(s.in_selfie)}')">🤳</button>`:""}`).join("<br>") : "—";
+      const openSite = sit.some(s=>!s.check_out_at);
+      const firstSiteIn = sit.length ? sit.map(s=>s.check_in_at).sort()[0] : null;
       let st;
       if(onLeave[id]) st=`<span class="pill warn">On leave (${esc(onLeave[id])})</span>`;
       else if(a?.punch_in && a?.punch_out) st=`<span class="pill good">Present</span>`;
       else if(a?.punch_in) st= past ? `<span class="pill bad">No punch-out</span>` : `<span class="pill good">In since ${fmtT(a.punch_in)}</span>`;
+      else if(sit.length) st= openSite ? (past ? `<span class="pill bad">No check-out</span>` : `<span class="pill good">On site since ${fmtT(firstSiteIn)}</span>`) : `<span class="pill good">Present (site)</span>`;
       else if(a?.first_login) st=`<span class="pill mute">Login only</span>`;
       else if(isOff) st=`<span class="pill mute">Off day</span>`;
       else st=`<span class="pill bad">Absent</span>`;
