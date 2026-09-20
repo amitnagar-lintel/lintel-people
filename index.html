@@ -1073,7 +1073,7 @@ async function renderMyAttendance(el){
   for(let d=1; d<=daysInMonth; d++){
     const iso=`${y}-${mm}-${String(d).padStart(2,"0")}`;
     const rec=byDay[iso]; const dw=new Date(y,m,d).getDay();
-    const isOff=dw===0||holSet.has(iso);  // Sat is a working day; only Sun off
+    const isOff=dw===(ME.weekly_off??0)||holSet.has(iso);  // per-employee weekly-off (default Sun)
     const onLeave=leaveByDay[iso];
     let bg="var(--card)", body="";
     if(rec){
@@ -1132,7 +1132,7 @@ function workingLeaveDays(from,to){
   if(e<s) return {days:0,weekends:0,holidays:0};
   for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)){
     const iso=d.toISOString().slice(0,10), dow=d.getDay();
-    if(dow===0){ wk++; continue; }  // Sat is a working day; only Sun is a weekly-off (sandwich)
+    if(dow===(ME.weekly_off??0)){ wk++; continue; }  // per-employee weekly-off (default Sun) is the sandwich weekend
     if(hset.has(iso)){ hol++; continue; }
     days++;
   }
@@ -1172,7 +1172,7 @@ async function renderHolidays(el){
 /* ===================== ADMIN CONSOLE (admin only) ===================== */
 async function renderAdmin(el, tab){
   tab = tab || "leave";
-  const emps = await sb.from("employees").select("id,full_name,date_of_joining,probation_months,status");
+  const emps = await sb.from("employees").select("id,full_name,date_of_joining,probation_months,status,weekly_off");
   const NAME={}, EMP={}; (emps.data||[]).forEach(e=>{NAME[e.id]=e.full_name; EMP[e.id]=e;});
   const tb=(id,l)=>`<button class="btn ${tab===id?"brass":"ghost"} sm" onclick="renderAdmin(document.querySelector('#view'),'${id}')">${l}</button>`;
   let body="";
@@ -1282,7 +1282,7 @@ async function renderAdmin(el, tab){
     (sites.data||[]).forEach(s=>{ if(s.employee_id){ (siteBy[s.employee_id]=siteBy[s.employee_id]||[]).push(s); } else waSites.push(s); });
     const fmtT=t=>t?new Date(t).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—";
     const dow=new Date(day+"T12:00:00").getDay();
-    const isOff = dow===0 || HOLIDAYS.some(h=>h.holiday_date===day);  // Sat working; only Sun off
+    const isHol = HOLIDAYS.some(h=>h.holiday_date===day);
     const past = day < todayISO();
     const ids=Object.keys(EMP).filter(id=>EMP[id].status!=="exited").sort((a,b)=>(NAME[a]||"").localeCompare(NAME[b]||""));
     const rows=ids.map(id=>{
@@ -1297,7 +1297,7 @@ async function renderAdmin(el, tab){
       else if(a?.punch_in) st= past ? `<span class="pill bad">No punch-out</span>` : `<span class="pill good">In since ${fmtT(a.punch_in)}</span>`;
       else if(sit.length) st= openSite ? (past ? `<span class="pill bad">No check-out</span>` : `<span class="pill good">On site since ${fmtT(firstSiteIn)}</span>`) : `<span class="pill good">Present (site)</span>`;
       else if(a?.first_login) st=`<span class="pill mute">Login only</span>`;
-      else if(isOff) st=`<span class="pill mute">Off day</span>`;
+      else if(isHol || dow===(EMP[id]?.weekly_off??0)) st=`<span class="pill mute">Off day</span>`;
       else st=`<span class="pill bad">Absent</span>`;
       const selfieBtn=p=>p?`<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" title="View selfie" onclick="openDoc('${esc(p)}')">🤳</button>`:"";
       return `<tr><td style="font-weight:600">${esc(NAME[id]||"—")}</td>
