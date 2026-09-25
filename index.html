@@ -1271,10 +1271,11 @@ async function renderAdmin(el, tab){
       </tbody></table>`;
   } else if(tab==="attendance"){
     const day = window.__attDay || todayISO();
-    const [att, sites, lv] = await Promise.all([
+    const [att, sites, lv, fails] = await Promise.all([
       sb.from("hr_attendance").select("*").eq("day",day),
       sb.rpc("hr_site_day",{p_day:day}).then(r=>r).catch(()=>({data:[]})),
-      sb.from("hr_leave_requests").select("employee_id,leave_type").eq("status","approved").lte("from_date",day).gte("to_date",day)
+      sb.from("hr_leave_requests").select("employee_id,leave_type").eq("status","approved").lte("from_date",day).gte("to_date",day),
+      sb.from("hr_punch_attempts").select("employee_id,at,action,outcome,place,distance_m").eq("work_date",day).eq("ok",false).order("at",{ascending:false}).then(r=>r).catch(()=>({data:[]}))
     ]);
     const map={}; (att.data||[]).forEach(a=>map[a.employee_id]=a);
     const onLeave={}; (lv.data||[]).forEach(l=>onLeave[l.employee_id]=l.leave_type);
@@ -1308,6 +1309,14 @@ async function renderAdmin(el, tab){
       <div style="overflow-x:auto"><table class="t"><thead><tr><th>Employee</th><th>Punch in</th><th>Punch out</th><th>Hours</th><th>Site visits</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${waSites.length?`<div class="h3sub" style="margin-top:14px"><b>Site check-ins via WhatsApp (field staff):</b><br>
         ${waSites.map(s=>`${esc(s.staff_name||"—")} — ${esc(s.project_name)} ${fmtT(s.check_in_at)}${s.check_out_at?"–"+fmtT(s.check_out_at):""}`).join("<br>")}</div>`:""}
+      ${(fails.data||[]).length?`<div class="card" style="margin-top:14px;background:#FCF0EE;border:1px solid #F0C9C2">
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px">⚠ Failed punch attempts (${(fails.data||[]).length})</div>
+        <div style="overflow-x:auto"><table class="t"><thead><tr><th>Employee</th><th>Time</th><th>Action</th><th>Reason</th><th>Nearest place</th><th>Distance</th></tr></thead><tbody>
+        ${(fails.data||[]).map(f=>`<tr><td style="font-weight:600">${esc(NAME[f.employee_id]||"—")}</td>
+          <td>${fmtT(f.at)}</td><td>${esc(f.action||"—")}</td><td style="font-size:12.5px">${esc(f.outcome||"—")}</td>
+          <td>${esc(f.place||"—")}</td><td>${f.distance_m!=null?(f.distance_m<1000?f.distance_m+" m":(Math.round(f.distance_m/100)/10)+" km"):"—"}</td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="h3sub" style="margin-top:6px">Someone tried to punch but it didn't record — usually too far from the fence (check the distance) or a missing selfie.</div></div>`:""}
       <div class="h3sub" style="margin-top:8px">Punches are studio-geofenced (100 m); site visits are geofenced per project where a pin is set. "Login only" = opened the portal but never punched.</div>`;
   }
   el.innerHTML=`
