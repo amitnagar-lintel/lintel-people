@@ -1,7 +1,7 @@
 /* Lintel People service worker.
    BUMP CACHE on every deploy that changes index.html — a stale cached shell
    is the classic single-file-PWA trap (same rule as Lintel OS). */
-const CACHE = "lintel-people-v11";
+const CACHE = "lintel-people-v12";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {

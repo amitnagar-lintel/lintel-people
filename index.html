@@ -1672,6 +1672,9 @@ async function viewEmpProfile(empId){
   const {data:emp}=await sb.from("employees").select("full_name").eq("id",empId).maybeSingle();
   const name=emp?.full_name||"Employee";
   const {data:p}=await sb.from("hr_profiles").select("*").eq("employee_id",empId).maybeSingle();
+  const {data:reimb}=await sb.from("hr_reimbursements").select("amount,status").eq("employee_id",empId);
+  const rb=(reimb||[]); const rbSum=fn=>rb.filter(fn).reduce((s,r)=>s+Number(r.amount||0),0);
+  const rbTotal=rbSum(()=>true), rbAppr=rbSum(r=>r.status==="approved"), rbPend=rbSum(r=>r.status==="pending"), rbRej=rbSum(r=>r.status==="rejected");
   let av=""; if(p?.avatar_path){ try{ av=await signedUrl(p.avatar_path);}catch(e){} }
   const v=f=>esc(p?.[f]??""); const st=p?.profile_status||"none";
   const badge = st==="approved"?'<span class="pill good">Approved</span>'
@@ -1681,6 +1684,15 @@ async function viewEmpProfile(empId){
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
       <img src="${av}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;background:var(--paper-2);border:1px solid var(--line)"/>
       <div>${badge}</div>
+    </div>
+    <div class="card" style="background:var(--paper-2);margin-bottom:14px;padding:12px 14px">
+      <div class="h3sub" style="margin:0 0 8px">Reimbursements claimed</div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:13px">
+        <div><div style="font-size:17px;font-weight:700;color:var(--ink)">${inr(rbTotal)}</div><div class="h3sub" style="margin:0">Total · ${rb.length} claim${rb.length!==1?"s":""}</div></div>
+        <div><div style="font-size:15px;font-weight:700;color:var(--green)">${inr(rbAppr)}</div><div class="h3sub" style="margin:0">Approved</div></div>
+        <div><div style="font-size:15px;font-weight:700;color:#B08433">${inr(rbPend)}</div><div class="h3sub" style="margin:0">Pending</div></div>
+        ${rbRej?`<div><div style="font-size:15px;font-weight:700;color:var(--red)">${inr(rbRej)}</div><div class="h3sub" style="margin:0">Rejected</div></div>`:""}
+      </div>
     </div>
     <div class="grid2">
       <label class="fld"><span>Personal email</span><input id="ep-personal_email" type="email" value="${v('personal_email')}"/></label>
