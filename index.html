@@ -912,7 +912,8 @@ async function renderClaims(el){
       <div class="row-head"><h3>Your claims</h3><button class="btn brass sm" onclick="claimModal()">New claim</button></div>
       ${(data&&data.length)? data.map(c=>`<div class="req"><div class="top">
           <div><div class="t1">${esc(c.category)} · ${inr(c.amount)}</div>
-            <div class="t2">${dMed(c.expense_date)}${c.note?" · "+esc(c.note):""}</div></div>
+            <div class="t2">${dMed(c.expense_date)}${c.note?" · "+esc(c.note):""}</div>
+            ${c.verify_note&&(c.status==="rejected"||c.verify_status==="needs_review")?`<div class="t2" style="color:${c.status==="rejected"?"var(--red)":"#B08433"};margin-top:3px">${c.status==="rejected"?"Auto-declined":"Under review"} — ${esc(c.verify_note)}</div>`:""}</div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px">${pill(c.status)}
             ${c.receipt_path?`<button class="btn ghost sm" onclick="openDoc('${esc(c.receipt_path)}')">Receipt</button>`:""}</div>
         </div></div>`).join("")
@@ -1204,12 +1205,16 @@ async function renderAdmin(el, tab){
       :`<div class="empty">Nothing awaiting verification.</div>`;
   } else if(tab==="claims"){
     const {data}=await sb.from("hr_reimbursements").select("*").eq("status","pending").order("created_at");
-    body=(data&&data.length)?`<table class="t"><thead><tr><th>Employee</th><th>Category</th><th>Amount</th><th>Date</th><th>Receipt</th><th></th></tr></thead><tbody>
-      ${data.map(c=>`<tr><td style="font-weight:600">${esc(NAME[c.employee_id]||"—")}</td><td>${esc(c.category)}</td>
-        <td>${inr(c.amount)}</td><td>${dMed(c.expense_date)}</td>
+    body=(data&&data.length)?`<table class="t"><thead><tr><th>Employee</th><th>Category</th><th>Amount</th><th>Bill check</th><th>Date</th><th>Receipt</th><th></th></tr></thead><tbody>
+      ${data.map(c=>{
+        const vc = c.verify_status==="match" ? `<span class="pill good" title="${esc(c.verify_note||"")}">✓ ${c.bill_amount!=null?inr(c.bill_amount):"OK"}</span>`
+          : c.verify_status==="needs_review" ? `<span class="pill warn" title="${esc(c.verify_note||"")}">⚠ Review${c.bill_amount!=null?" · "+inr(c.bill_amount):""}</span>`
+          : `<span class="pill mute">—</span>`;
+        return `<tr><td style="font-weight:600">${esc(NAME[c.employee_id]||"—")}</td><td>${esc(c.category)}</td>
+        <td>${inr(c.amount)}</td><td style="font-size:12px">${vc}</td><td>${dMed(c.expense_date)}</td>
         <td>${c.receipt_path?`<button class="btn ghost sm" onclick="openDoc('${esc(c.receipt_path)}')">View</button>`:"—"}</td>
         <td style="white-space:nowrap"><button class="btn sm" onclick="decideClaim('${c.id}','approved')">Approve</button>
-        <button class="btn ghost sm" onclick="decideClaim('${c.id}','rejected')">Reject</button></td></tr>`).join("")}</tbody></table>`
+        <button class="btn ghost sm" onclick="decideClaim('${c.id}','rejected')">Reject</button></td></tr>`;}).join("")}</tbody></table>`
       :`<div class="empty">No pending claims.</div>`;
   } else if(tab==="profiles"){
     const {data}=await sb.from("hr_profiles").select("*").eq("profile_status","submitted");
