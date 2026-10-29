@@ -1307,7 +1307,7 @@ async function renderAdmin(el, tab){
       else st=`<span class="pill bad">Absent</span>`;
       const selfieBtn=p=>p?`<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" title="View selfie" onclick="openDoc('${esc(p)}')">🤳</button>`:"";
       return `<tr><td style="font-weight:600">${esc(NAME[id]||"—")}</td>
-        <td>${a?fmtT(a.punch_in):"—"}${selfieBtn(a?.punch_in_selfie)}</td><td>${a?fmtT(a.punch_out):"—"}${selfieBtn(a?.punch_out_selfie)}</td><td>${hours}</td>
+        <td>${a?fmtT(a.punch_in):"—"}${selfieBtn(a?.punch_in_selfie)}</td><td>${a?fmtT(a.punch_out):"—"}${a?.punch_out_auto?` <span class="pill mute" style="font-size:10px" title="Auto-closed at shift end — employee did not punch out">auto</span>`:""}${selfieBtn(a?.punch_out_selfie)}</td><td>${hours}</td>
         <td style="font-size:12.5px">${siteCell}</td><td>${st}</td></tr>`;
     }).join("");
     body=`<label class="fld" style="max-width:220px"><span>Date</span><input id="att-day" type="date" value="${day}" onchange="window.__attDay=this.value;renderAdmin(document.querySelector('#view'),'attendance')"/></label>
